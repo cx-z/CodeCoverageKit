@@ -5,15 +5,24 @@
 #include <stdint.h>
 #include <stdlib.h>
 
-extern uint64_t __llvm_profile_get_size_for_buffer(void);
-extern int __llvm_profile_write_buffer(char *buffer);
+extern uint64_t __llvm_profile_get_size_for_buffer(void) __attribute__((weak_import));
+extern int __llvm_profile_write_buffer(char *buffer) __attribute__((weak_import));
 
 static NSString * const CodeCoverageRuntimeBridgeErrorDomain = @"CodeCoverageKit.RuntimeBridge";
 
 @implementation CodeCoverageRuntimeBridge
 
-/// Captures the process-wide LLVM profile runtime into an owned NSData buffer without changing or resetting counters.
+/// Captures the process-wide LLVM profile runtime without resetting counters, or reports that the host is not instrumented.
 + (nullable NSData *)snapshotDataWithError:(NSError * _Nullable __autoreleasing *)error {
+    if (__llvm_profile_get_size_for_buffer == NULL || __llvm_profile_write_buffer == NULL) {
+        if (error != NULL) {
+            *error = [NSError errorWithDomain:CodeCoverageRuntimeBridgeErrorDomain
+                                         code:4
+                                     userInfo:@{NSLocalizedDescriptionKey: @"宿主进程未链接 LLVM profile runtime。"}];
+        }
+        return nil;
+    }
+
     uint64_t size = __llvm_profile_get_size_for_buffer();
     if (size == 0 || size > (uint64_t)NSIntegerMax) {
         if (error != NULL) {

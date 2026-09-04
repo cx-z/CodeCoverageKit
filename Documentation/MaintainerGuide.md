@@ -27,4 +27,4 @@ True-device regression is required for lifecycle snapshots, overwrite-install pe
 
 ## Repository and release
 
-`CodeCoverageKit` is an independent local Git repository. The platform parent is an organizational directory, not a monorepo. No remote URL or package version is defined yet. Before the first shared release, choose the company GitLab repository, define semantic-version ownership, tag a reviewed baseline and document supported Xcode/Swift versions.
+`CodeCoverageKit` is an independent Git repository distributed from `https://github.com/cx-z/CodeCoverageKit`. The platform parent is an organizational directory, not a monorepo. Keep SwiftPM and CocoaPods source ownership aligned, pin reviewed host integrations, and define semantic-version/tag ownership before publishing a stable release.

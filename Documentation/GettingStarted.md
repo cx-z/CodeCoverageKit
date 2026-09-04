@@ -11,15 +11,25 @@ The package does not support a public Objective-C host facade in this version.
 
 ## 1. Add the package
 
-For local development, choose **File > Add Package Dependencies > Add Local** in Xcode and select:
+For SwiftPM, add the remote repository and link the `CodeCoverageKit` product only to a target that is allowed to include it in every configuration:
 
-```text
-/path/to/CodeCoverageKit
+```swift
+.package(url: "https://github.com/cx-z/CodeCoverageKit.git", exact: "<approved-version>")
 ```
 
 Link the `CodeCoverageKit` product only to the host app target. Do not link or import `CodeCoverageRuntimeBridge` directly.
 
-For a future remote dependency, use the company GitLab package URL and an approved semantic-version rule after those values exist. Do not copy the source directory into each app repository.
+Xcode does not provide a build-configuration condition for a Swift Package product dependency on one app target. When Release must physically exclude this SDK, use CocoaPods with an explicit host configuration:
+
+```ruby
+pod 'CodeCoverageKit',
+    :git => 'https://github.com/cx-z/CodeCoverageKit.git',
+    :commit => '<approved-commit>',
+    :configurations => ['Debug']
+```
+
+Then run `pod install` and build through the generated workspace. The Pod owns the same Swift implementation, Objective-C LLVM bridge and neutral configuration resource as the Swift Package; it does not create a second runtime implementation.
+The Pod adds the LLVM profile runtime linker flag only to host configurations where the dependency is present. The host must still enable coverage mapping so its own source produces counters and coverage regions.
 
 ## 2. Enable the host app target
 
@@ -30,7 +40,7 @@ ENABLE_CODE_COVERAGE = YES
 CLANG_COVERAGE_MAPPING = YES
 ```
 
-Keep the package import, startup and debug-menu entry behind the host's existing Debug/Coverage condition. Do not add these entries to Release merely to make the integration compile.
+Keep the import, startup and debug-menu entry behind the host's existing Debug/Coverage condition. Do not add these entries to Release merely to make the integration compile.
 
 The condition name belongs to the host. For example, a project may define `INTERNAL_COVERAGE` in **Active Compilation Conditions** for its Coverage Debug configuration and use `#if INTERNAL_COVERAGE`; the SDK does not require any particular host flag.
 

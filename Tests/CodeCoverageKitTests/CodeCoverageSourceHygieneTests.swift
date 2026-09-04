@@ -45,6 +45,19 @@ final class CodeCoverageSourceHygieneTests: XCTestCase {
         XCTAssertTrue(t_publicSource.hasPrefix("#if CODE_COVERAGE_KIT_ENABLED"))
     }
 
+    /// 验证 CocoaPods 描述复用 Swift、Objective-C bridge 和配置资源，且不在 SDK 内冒充宿主配置边界。
+    func testCocoaPodsSpecificationUsesSharedSourcesAndHostOwnedConfigurationGate() throws {
+        let t_spec = try String(
+            contentsOf: p_packageRoot().appendingPathComponent("CodeCoverageKit.podspec"),
+            encoding: .utf8
+        )
+        XCTAssertTrue(t_spec.contains("Sources/CodeCoverageKit/**/*.swift"))
+        XCTAssertTrue(t_spec.contains("Sources/CodeCoverageRuntimeBridge/**/*.{h,m}"))
+        XCTAssertTrue(t_spec.contains("CODE_COVERAGE_KIT_ENABLED=1"))
+        XCTAssertTrue(t_spec.contains("CodeCoverageKitConfiguration.json"))
+        XCTAssertFalse(t_spec.contains(":configurations"))
+    }
+
     /// 返回按路径排序的 SDK Swift 生产源码，确保静态扫描结果稳定。
     private func p_sourceFiles() throws -> [URL] {
         let t_root = p_packageRoot().appendingPathComponent("Sources/CodeCoverageKit", isDirectory: true)

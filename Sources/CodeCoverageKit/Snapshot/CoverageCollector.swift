@@ -1,5 +1,7 @@
 #if CODE_COVERAGE_KIT_ENABLED
+#if SWIFT_PACKAGE
 import CodeCoverageRuntimeBridge
+#endif
 import Foundation
 
 final class CoverageCollector {

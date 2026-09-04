@@ -1,6 +1,6 @@
 # Configuration
 
-`Sources/CodeCoverageKit/Resources/CodeCoverageKitConfiguration.json` contains only the neutral server-address placeholder shown by the SDK console. It does not select a network endpoint. The effective server URL continues to come from the injected Build metadata or a user-saved override.
+`Sources/CodeCoverageKit/Resources/CodeCoverageKitConfiguration.json` contains only the neutral server-address placeholder shown by the SDK console. SwiftPM and CocoaPods package it in their own SDK resource Bundle. It does not select a network endpoint; the effective server URL continues to come from injected Build metadata or a user-saved override.
 
 ## Server address
 

@@ -3,6 +3,8 @@ import Foundation
 
 struct CoverageConsoleConfiguration: Decodable, Equatable, Sendable {
     static let resourceName = "CodeCoverageKitConfiguration"
+    private static let resourceBundleName = "CodeCoverageKit"
+    private final class BundleToken: NSObject {}
 
     let serverAddress: String
     let serverPort: Int
@@ -17,13 +19,31 @@ struct CoverageConsoleConfiguration: Decodable, Equatable, Sendable {
         "http://\(serverAddress):\(serverPort)"
     }
 
-    /// 从 SDK 资源读取控制台展示配置；资源缺失或格式错误时返回 nil，不影响动态 Build metadata。
-    static func load(bundle: Bundle = .module) -> CoverageConsoleConfiguration? {
-        guard let t_url = bundle.url(forResource: resourceName, withExtension: "json"),
+    /// 从当前分发方式的 SDK 资源 Bundle 读取控制台展示配置；资源缺失或格式错误时返回 nil。
+    static func load() -> CoverageConsoleConfiguration? {
+        guard let t_bundle = p_resourceBundle(),
+              let t_url = t_bundle.url(forResource: resourceName, withExtension: "json"),
               let t_data = try? Data(contentsOf: t_url) else {
             return nil
         }
         return try? JSONDecoder().decode(CoverageConsoleConfiguration.self, from: t_data)
+    }
+
+    /// 解析 SwiftPM 或 CocoaPods 生成的资源 Bundle，不读取宿主业务资源。
+    private static func p_resourceBundle() -> Bundle? {
+        #if SWIFT_PACKAGE
+        return .module
+        #else
+        let t_containingBundle = Bundle(for: BundleToken.self)
+        if let t_url = t_containingBundle.url(forResource: resourceBundleName, withExtension: "bundle"),
+           let t_bundle = Bundle(url: t_url) {
+            return t_bundle
+        }
+        guard let t_url = Bundle.main.url(forResource: resourceBundleName, withExtension: "bundle") else {
+            return nil
+        }
+        return Bundle(url: t_url)
+        #endif
     }
 }
 #endif

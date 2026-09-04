@@ -42,4 +42,4 @@ First confirm a Run for the same Build is `uploaded` and analyzable; Build regis
 
 ## Release unexpectedly exposes APIs
 
-Build the Package and host in Release, then verify no `CodeCoverage` call site is compiled and no metadata resource/token is present. The package implementation is guarded by `CODE_COVERAGE_KIT_ENABLED` for Debug. A host-created wrapper that leaks into Release remains the host's responsibility.
+Build the host in Release and inspect the final `.app` for `CodeCoverageKit` symbols, its resource Bundle, metadata and token. SwiftPM guards implementation source but cannot condition a product dependency by build configuration; use a Debug-scoped CocoaPods dependency when Release must physically exclude the SDK. A host-created wrapper that leaks into Release remains the host's responsibility.

@@ -38,13 +38,28 @@ Lifecycle collection is local-only. `start()` captures at launch, backgrounding 
 
 ## Integration overview
 
-1. Add this directory as a local Swift Package and link the `CodeCoverageKit` product to the app target.
+1. Add the SDK through SwiftPM for targets that may include it in every configuration, or through CocoaPods when one app target must exclude it from Release.
 2. Enable LLVM coverage mapping on the app target for the intended internal Debug configuration.
 3. Call `CodeCoverage.start()` once and expose the optional console behind the host's existing debug-only condition.
 4. Use `coveragectl prepare` before Archive and inject its generated `CodeCoverageBuildMetadata.json` through a build phase.
 5. Use `coveragectl register` on that same Archive before signing or distribution completes.
 
-After a company repository and version policy exist, the equivalent manifest declaration will use placeholders such as `.package(url: "<GitLab-package-URL>", from: "<approved-version>")`. Neither value is assigned in the current local baseline.
+SwiftPM remote dependency:
+
+```swift
+.package(url: "https://github.com/cx-z/CodeCoverageKit.git", exact: "<approved-version>")
+```
+
+CocoaPods Debug-only dependency:
+
+```ruby
+pod 'CodeCoverageKit',
+    :git => 'https://github.com/cx-z/CodeCoverageKit.git',
+    :commit => '<approved-commit>',
+    :configurations => ['Debug']
+```
+
+The host owns the `:configurations` boundary. Do not declare this Pod without a Debug-only configuration when Release must contain no SDK code or resources.
 
 The metadata contains a restricted Run token. It can call only probe and Run-upload endpoints, is never displayed by the SDK, and must never be confused with an operator token. It can still be extracted from an IPA, so Coverage builds remain internal artifacts.
 
@@ -52,8 +67,9 @@ See [Getting Started](Documentation/GettingStarted.md), [Build and Metadata](Doc
 
 ## Build boundaries
 
-- Debug compiles the implementation behind `CODE_COVERAGE_KIT_ENABLED`.
-- Release does not expose the `CodeCoverage` facade or compile the self-managed collection, storage, upload, UI and runtime behavior.
+- SwiftPM Debug compiles the implementation behind `CODE_COVERAGE_KIT_ENABLED`; its Release source surface remains empty.
+- CocoaPods compiles the same implementation and resources only for host configurations that declare the Pod.
+- Hosts requiring physical Release exclusion must use a configuration-scoped dependency and verify the final app contains no SDK symbols or resource Bundle.
 - The SDK does not enable coverage mapping for the host, inject metadata, sign an app, register a Build or distribute an IPA.
 - The SDK accepts only private/link-local IPv4 or `.local` server roots and never uploads automatically.
 
@@ -93,4 +109,4 @@ More references:
 
 ## Current scope
 
-This repository does not include the Coverage server, `coveragectl`, a sample app, Objective-C host APIs, ProjectRegistry, or a binary distribution. A company GitLab package URL and versioning policy have not yet been assigned; use a local package dependency until those are established.
+This repository does not include the Coverage server, `coveragectl`, a sample app, Objective-C host APIs, ProjectRegistry, or a binary distribution. Source distribution is available through SwiftPM and CocoaPods from this repository; hosts must pin an approved version or commit.
