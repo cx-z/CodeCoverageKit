@@ -1,10 +1,10 @@
 # Configuration
 
-`Sources/CodeCoverageKit/Resources/CodeCoverageKitConfiguration.json` contains only the neutral server-address placeholder shown by the SDK console. SwiftPM and CocoaPods package it in their own SDK resource Bundle. It does not select a network endpoint; the effective server URL continues to come from injected Build metadata or a user-saved override.
+The SDK does not package an environment-specific server-address configuration file. The effective server URL comes from injected Build metadata or a user-saved override, so hosts do not need to modify SDK sources or resources.
 
 ## Server address
 
-The package default comes from `coverage_server_url` in Build metadata. A user may save a replacement URL in the console or restore the package default. The SDK persists only the normalized URL override under `CodeCoverageKit.server_url`.
+The package default comes from `coverage_server_url` in Build metadata. A user may save a replacement URL in the console or restore the Build metadata value. The SDK persists only the normalized URL override under `CodeCoverageKit.server_url`.
 
 Allowed roots are:
 

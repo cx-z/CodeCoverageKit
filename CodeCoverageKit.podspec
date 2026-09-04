@@ -24,9 +24,6 @@ Pod::Spec.new do |spec|
     'Sources/CodeCoverageRuntimeBridge/**/*.{h,m}'
   ]
   spec.public_header_files = 'Sources/CodeCoverageRuntimeBridge/include/*.h'
-  spec.resource_bundles = {
-    'CodeCoverageKit' => ['Sources/CodeCoverageKit/Resources/CodeCoverageKitConfiguration.json']
-  }
   spec.frameworks = ['Foundation', 'UIKit']
   spec.pod_target_xcconfig = {
     'DEFINES_MODULE' => 'YES',

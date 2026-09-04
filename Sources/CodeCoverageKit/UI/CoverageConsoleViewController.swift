@@ -97,8 +97,7 @@ final class CoverageConsoleViewController: UIViewController {
         vContentStackView.addArrangedSubview(vCoverageUploadButton)
 
         vContentStackView.addArrangedSubview(p_makeSectionTitleLabel(text: "Coverage 服务 URL"))
-        let t_serverURLPlaceholder = CoverageConsoleConfiguration.load()?.serverURLPlaceholder ?? "服务器地址"
-        p_styleTextField(vServerURLTextField, placeholder: t_serverURLPlaceholder)
+        p_styleTextField(vServerURLTextField, placeholder: "服务器地址")
         vServerURLTextField.keyboardType = .URL
         vServerURLTextField.textContentType = .URL
         vServerURLTextField.addTarget(self, action: #selector(p_inputDidChange), for: .editingChanged)

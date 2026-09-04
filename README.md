@@ -68,8 +68,8 @@ See [Getting Started](Documentation/GettingStarted.md), [Build and Metadata](Doc
 ## Build boundaries
 
 - SwiftPM Debug compiles the implementation behind `CODE_COVERAGE_KIT_ENABLED`; its Release source surface remains empty.
-- CocoaPods compiles the same implementation and resources only for host configurations that declare the Pod.
-- Hosts requiring physical Release exclusion must use a configuration-scoped dependency and verify the final app contains no SDK symbols or resource Bundle.
+- CocoaPods compiles the same implementation only for host configurations that declare the Pod.
+- Hosts requiring physical Release exclusion must use a configuration-scoped dependency and verify the final app contains no SDK symbols or Coverage Build metadata.
 - The SDK does not enable coverage mapping for the host, inject metadata, sign an app, register a Build or distribute an IPA.
 - The SDK accepts only private/link-local IPv4 or `.local` server roots and never uploads automatically.
 

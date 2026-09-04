@@ -31,7 +31,7 @@ final class CodeCoverageSourceHygieneTests: XCTestCase {
         }
     }
 
-    /// 验证 Package 只在 Debug 配置定义实现开关，Release 不导出可调用门面实现。
+    /// 验证 Package 只在 Debug 配置定义实现开关、不打包环境配置资源，且 Release 不导出可调用门面实现。
     func testPackageKeepsImplementationBehindDebugCondition() throws {
         let t_manifest = try String(
             contentsOf: p_packageRoot().appendingPathComponent("Package.swift"),
@@ -42,10 +42,11 @@ final class CodeCoverageSourceHygieneTests: XCTestCase {
             encoding: .utf8
         )
         XCTAssertTrue(t_manifest.contains(#".define("CODE_COVERAGE_KIT_ENABLED", .when(configuration: .debug))"#))
+        XCTAssertFalse(t_manifest.contains(#".process("Resources")"#))
         XCTAssertTrue(t_publicSource.hasPrefix("#if CODE_COVERAGE_KIT_ENABLED"))
     }
 
-    /// 验证 CocoaPods 描述复用 Swift、Objective-C bridge 和配置资源，且不在 SDK 内冒充宿主配置边界。
+    /// 验证 CocoaPods 描述复用 Swift 与 Objective-C bridge，且不在 SDK 内冒充宿主配置边界。
     func testCocoaPodsSpecificationUsesSharedSourcesAndHostOwnedConfigurationGate() throws {
         let t_spec = try String(
             contentsOf: p_packageRoot().appendingPathComponent("CodeCoverageKit.podspec"),
@@ -54,7 +55,7 @@ final class CodeCoverageSourceHygieneTests: XCTestCase {
         XCTAssertTrue(t_spec.contains("Sources/CodeCoverageKit/**/*.swift"))
         XCTAssertTrue(t_spec.contains("Sources/CodeCoverageRuntimeBridge/**/*.{h,m}"))
         XCTAssertTrue(t_spec.contains("CODE_COVERAGE_KIT_ENABLED=1"))
-        XCTAssertTrue(t_spec.contains("CodeCoverageKitConfiguration.json"))
+        XCTAssertFalse(t_spec.contains("resource_bundles"))
         XCTAssertFalse(t_spec.contains(":configurations"))
     }
 

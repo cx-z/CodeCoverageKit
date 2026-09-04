@@ -24,9 +24,6 @@ let package = Package(
             name: "CodeCoverageKit",
             dependencies: ["CodeCoverageRuntimeBridge"],
             path: "Sources/CodeCoverageKit",
-            resources: [
-                .process("Resources")
-            ],
             swiftSettings: [
                 .define("CODE_COVERAGE_KIT_ENABLED", .when(configuration: .debug))
             ]

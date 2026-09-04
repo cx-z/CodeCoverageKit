@@ -28,7 +28,7 @@ pod 'CodeCoverageKit',
     :configurations => ['Debug']
 ```
 
-Then run `pod install` and build through the generated workspace. The Pod owns the same Swift implementation, Objective-C LLVM bridge and neutral configuration resource as the Swift Package; it does not create a second runtime implementation.
+Then run `pod install` and build through the generated workspace. The Pod owns the same Swift implementation and Objective-C LLVM bridge as the Swift Package; it does not create a second runtime implementation.
 The Pod adds the LLVM profile runtime linker flag only to host configurations where the dependency is present. The host must still enable coverage mapping so its own source produces counters and coverage regions.
 
 ## 2. Enable the host app target
