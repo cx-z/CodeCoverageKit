@@ -16,4 +16,8 @@ Also build the iOS package scheme and at least one real host through its workspa
 
 Do not commit `.build`, DerivedData, result bundles, profiles, tokens, generated metadata, Archives or IPA files. Never place operator or restricted Run tokens in source, fixtures, logs or issue reports.
 
-The Package currently has no remote or release tag. Do not invent a dependency URL or publish from a developer machine until repository ownership and release policy are approved.
+## Contribution license
+
+Unless explicitly stated otherwise, every contribution intentionally submitted for inclusion in CodeCoverageKit is licensed under the Apache License 2.0 on the same terms as the project.
+
+Do not publish a release tag until repository ownership and release policy are approved.

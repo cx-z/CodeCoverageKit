@@ -110,3 +110,7 @@ More references:
 ## Current scope
 
 This repository does not include the Coverage server, `coveragectl`, a sample app, Objective-C host APIs, ProjectRegistry, or a binary distribution. Source distribution is available through SwiftPM and CocoaPods from this repository; hosts must pin an approved version or commit.
+
+## License
+
+CodeCoverageKit is available under the [Apache License 2.0](LICENSE).

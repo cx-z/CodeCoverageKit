@@ -8,8 +8,8 @@ Pod::Spec.new do |spec|
   DESC
   spec.homepage = 'https://github.com/cx-z/CodeCoverageKit'
   spec.license = {
-    :type => 'Copyright',
-    :text => 'Copyright (c) CodeCoverageKit contributors. All rights reserved.'
+    :type => 'Apache-2.0',
+    :file => 'LICENSE'
   }
   spec.author = 'CodeCoverageKit Contributors'
   spec.source = {
