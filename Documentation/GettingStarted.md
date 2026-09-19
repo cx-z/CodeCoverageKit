@@ -105,7 +105,7 @@ The current tool exposes the real two-phase commands below; replace only paths a
   --context <empty-owner-only-directory> \
   --result-root /path/to/CoverageBuilds \
   --developer-dir /path/to/Xcode.app/Contents/Developer \
-  --operator-token-file /path/to/operator-token \
+  --packaging-token-file /path/to/packaging-token \
   --run-token-file /path/to/restricted-run-token
 
 # Archive with the metadata path emitted by prepare, then:
@@ -113,7 +113,7 @@ The current tool exposes the real two-phase commands below; replace only paths a
   --project-config /path/to/CoverageProject.json \
   --context <same-context-directory> \
   --archive /path/to/App.xcarchive \
-  --operator-token-file /path/to/operator-token \
+  --packaging-token-file /path/to/packaging-token \
   --run-token-file /path/to/restricted-run-token
 
 # After the host exports its IPA:

@@ -35,7 +35,7 @@ coveragectl prepare \
   --context <owner-only-context-directory> \
   --result-root /path/to/CoverageBuilds \
   --developer-dir /path/to/Xcode.app/Contents/Developer \
-  --operator-token-file /path/to/operator-token \
+  --packaging-token-file /path/to/packaging-token \
   --run-token-file /path/to/restricted-run-token
 
 DEVELOPER_DIR=/path/to/Xcode.app/Contents/Developer \
@@ -50,7 +50,7 @@ coveragectl register \
   --project-config /path/to/CoverageProject.json \
   --context <same-context-directory> \
   --archive /path/to/ExampleApp.xcarchive \
-  --operator-token-file /path/to/operator-token \
+  --packaging-token-file /path/to/packaging-token \
   --run-token-file /path/to/restricted-run-token
 ```
 
@@ -78,7 +78,7 @@ coverage_server_url
 run_upload_token
 ```
 
-`cycle_id` and `build_id` are UUIDs. The service root must pass the SDK's LAN-only validation. The restricted Run token is required and is distributed inside the internal Coverage IPA; it is not an operator credential and the SDK never displays it.
+`cycle_id` and `build_id` are UUIDs. A developer obtains `cycle_id` by submitting the MR in the platform Web UI. The build Mac uses a packaging-scope token only for known-Cycle and Build APIs; it is never written into metadata or the IPA. The service root must pass the SDK's LAN-only validation. The restricted Run token is required and is distributed inside the internal Coverage IPA; it is not a packaging/operator credential and the SDK never displays it.
 
 Dynamic metadata must remain in temporary/build output, never in tracked source. The SDK reads only the neutral metadata filename and does not infer host-specific alternatives.
 
