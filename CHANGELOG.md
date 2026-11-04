@@ -2,6 +2,11 @@
 
 All notable changes to CodeCoverageKit are documented in this file.
 
+## 0.1.2 - 2026-11-04
+
+- Added a console Header with a title and back button for hosts that hide the system navigation bar.
+- Preserved system navigation when visible and kept host navigation-bar visibility unchanged.
+
 ## 0.1.1 - 2026-09-07
 
 - Adopted the Apache License 2.0 for source distribution and contributions.

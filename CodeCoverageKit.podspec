@@ -1,6 +1,6 @@
 Pod::Spec.new do |spec|
   spec.name = 'CodeCoverageKit'
-  spec.version = '0.1.1'
+  spec.version = '0.1.2'
   spec.summary = 'LLVM coverage snapshot and upload support for internal iOS builds.'
   spec.description = <<-DESC
     CodeCoverageKit captures LLVM profile snapshots, persists pending Runs, and
