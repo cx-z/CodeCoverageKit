@@ -67,6 +67,12 @@ navigationController?.pushViewController(controller, animated: true)
 #endif
 ```
 
+The console uses the system title and back button when the navigation bar is visible.
+If the host hides the navigation bar, the console shows its own Header and a back
+button for a non-root pushed page. Without a navigation controller, or at its root,
+the Header shows the title only. The SDK does not change the host's navigation-bar
+visibility; the host owns dismissal when presenting the console modally.
+
 `isAvailable` validates Bundle metadata without exposing its token. `start()` is idempotent, restores local records and captures locally; it does not make a network request.
 
 ## 4. Prepare and inject metadata

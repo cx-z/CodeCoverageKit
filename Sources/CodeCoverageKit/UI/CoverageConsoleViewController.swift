@@ -4,6 +4,10 @@ import UIKit
 @MainActor
 final class CoverageConsoleViewController: UIViewController {
     private let vViewModel = CoverageConsoleViewModel()
+    private let vHeaderView = UIStackView()
+    private let vBackButton = UIButton(type: .system)
+    private var vScrollTopToSafeAreaConstraint: NSLayoutConstraint?
+    private var vScrollTopToHeaderConstraint: NSLayoutConstraint?
     private let vScrollView = UIScrollView()
     private let vContentStackView = UIStackView()
     private let vServerURLTextField = UITextField()
@@ -40,9 +44,10 @@ final class CoverageConsoleViewController: UIViewController {
         vViewModel.refreshCoverageSummary()
     }
 
-    /// 页面重新可见时刷新磁盘计数，展示后台快照或上次上传留下的最新状态。
+    /// 页面重新可见时适配宿主导航栏，并刷新后台快照或上次上传留下的磁盘计数。
     override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
+        p_updateNavigation()
         vViewModel.refreshCoverageSummary()
     }
 
@@ -54,15 +59,19 @@ final class CoverageConsoleViewController: UIViewController {
         }
     }
 
-    /// 配置完整滚动约束链以及配置、探针、上传、状态和权限说明区域。
+    /// 配置导航 Header 和完整滚动约束链，以及配置、探针、上传、状态和权限说明区域。
     private func p_setUpUI() {
         title = "覆盖率网络验证"
         view.backgroundColor = .systemBackground
+        p_setUpHeader()
 
         vScrollView.alwaysBounceVertical = true
         vScrollView.keyboardDismissMode = .interactive
         vScrollView.translatesAutoresizingMaskIntoConstraints = false
         view.addSubview(vScrollView)
+        vScrollTopToSafeAreaConstraint = vScrollView.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor)
+        vScrollTopToHeaderConstraint = vScrollView.topAnchor.constraint(equalTo: vHeaderView.bottomAnchor)
+        p_updateNavigation()
 
         vContentStackView.axis = .vertical
         vContentStackView.alignment = .fill
@@ -71,7 +80,6 @@ final class CoverageConsoleViewController: UIViewController {
         vScrollView.addSubview(vContentStackView)
 
         NSLayoutConstraint.activate([
-            vScrollView.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor),
             vScrollView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             vScrollView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             vScrollView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
@@ -142,6 +150,63 @@ final class CoverageConsoleViewController: UIViewController {
         ))
         p_styleButton(vOpenSettingsButton, title: "打开系统设置", primary: false, action: #selector(p_openSettingsTapped))
         vContentStackView.addArrangedSubview(vOpenSettingsButton)
+    }
+
+    /// 为隐藏系统导航栏的宿主构建原生 Header；标题自然换行，按钮保留 44 点触控区域。
+    private func p_setUpHeader() {
+        vBackButton.setImage(UIImage(systemName: "chevron.backward"), for: .normal)
+        vBackButton.tintColor = .label
+        vBackButton.accessibilityLabel = "返回"
+        vBackButton.addTarget(self, action: #selector(p_backTapped), for: .touchUpInside)
+
+        let t_titleLabel = UILabel()
+        t_titleLabel.text = title
+        t_titleLabel.textColor = .label
+        t_titleLabel.font = .preferredFont(forTextStyle: .headline)
+        t_titleLabel.adjustsFontForContentSizeCategory = true
+        t_titleLabel.numberOfLines = 0
+        t_titleLabel.textAlignment = .center
+        t_titleLabel.accessibilityTraits.insert(.header)
+
+        let t_trailingSpace = UIView()
+        vHeaderView.axis = .horizontal
+        vHeaderView.alignment = .center
+        vHeaderView.spacing = 8
+        vHeaderView.translatesAutoresizingMaskIntoConstraints = false
+        [vBackButton, t_titleLabel, t_trailingSpace].forEach(vHeaderView.addArrangedSubview)
+        view.addSubview(vHeaderView)
+        NSLayoutConstraint.activate([
+            vHeaderView.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor),
+            vHeaderView.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 8),
+            vHeaderView.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -8),
+            vBackButton.widthAnchor.constraint(equalToConstant: 44),
+            vBackButton.heightAnchor.constraint(equalToConstant: 44),
+            t_trailingSpace.widthAnchor.constraint(equalTo: vBackButton.widthAnchor)
+        ])
+    }
+
+    /// 只选择系统导航或 SDK Header，不改动宿主导航栏；根页面不提供无效的返回操作。
+    private func p_updateNavigation() {
+        let t_navigation = navigationController
+        let t_showsHeader = t_navigation.map { $0.isNavigationBarHidden || $0.navigationBar.isHidden } ?? true
+        let t_canGoBack = t_navigation.map { $0.viewControllers.first !== self } ?? false
+        vHeaderView.isHidden = !t_showsHeader
+        // 保留左右对称占位，避免根页面隐藏返回操作后标题偏移。
+        vBackButton.alpha = t_canGoBack ? 1 : 0
+        vBackButton.isEnabled = t_canGoBack
+        vBackButton.accessibilityElementsHidden = !t_canGoBack
+        if t_showsHeader {
+            vScrollTopToSafeAreaConstraint?.isActive = false
+            vScrollTopToHeaderConstraint?.isActive = true
+        } else {
+            vScrollTopToHeaderConstraint?.isActive = false
+            vScrollTopToSafeAreaConstraint?.isActive = true
+        }
+    }
+
+    /// 返回当前宿主导航栈的上一页，沿用控制台退出时的请求取消流程。
+    @objc private func p_backTapped() {
+        navigationController?.popViewController(animated: true)
     }
 
     /// 绑定 ViewModel 完整状态快照，确保页面只渲染而不承载网络决策。
