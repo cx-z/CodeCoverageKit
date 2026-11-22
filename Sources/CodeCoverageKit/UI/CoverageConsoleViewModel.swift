@@ -363,7 +363,7 @@ final class CoverageConsoleViewModel {
         }
     }
 
-    /// 将 Collector 摘要转换为页面文本，并根据有效 Build 身份和上传状态决定按钮可用性。
+    /// 展示代表上传计数及原文件保留说明，根据批次状态决定按钮可用性。
     private func p_applyCoverageSummary(_ summary: CoverageCollector.Summary) {
         let t_cycle = summary.currentCycleID ?? "无"
         let t_build = summary.currentBuildID ?? "无"
@@ -372,6 +372,9 @@ final class CoverageConsoleViewModel {
             "Build：\(t_build)",
             "pending：\(summary.pendingCount)  failed：\(summary.failedCount)  uploaded：\(summary.uploadedCount)"
         ]
+        if summary.coalescedCount > 0 {
+            t_lines.append("部分累计快照已由更新快照代表上传，原文件仍保留（\(summary.coalescedCount) 份）")
+        }
         if let t_size = summary.lastSnapshotSize,
            let t_duration = summary.lastSnapshotDurationMilliseconds {
             t_lines.append("最近快照：\(t_size) 字节，\(t_duration) ms")

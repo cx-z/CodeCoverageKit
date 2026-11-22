@@ -14,7 +14,7 @@ public enum CodeCoverage {
         public let sha256: String
         /// 从读取 LLVM runtime 到原子提交清单的近似耗时，单位为毫秒。
         public let durationMilliseconds: Int
-        /// 本次快照完成后，所有 Build 仍待上传或可重试的 Run 数量。
+        /// 本次快照完成后，所有 Build 待上传或在途的代表 Run 数量，失败记录单独统计。
         public let pendingCount: Int
 
         /// 创建供宿主展示的不可变快照结果，不暴露 SDK 内部存储记录。
@@ -41,7 +41,7 @@ public enum CodeCoverage {
         public let uploadedCount: Int
         /// 本次用户操作中进入可重试或永久失败状态的 Run 数量。
         public let failedCount: Int
-        /// 本轮结束后所有 Build 仍待上传或可重试的 Run 数量。
+        /// 本轮结束后所有 Build 待上传代表的数量，失败记录单独统计。
         public let pendingCount: Int
         /// 是否因服务端返回 401/403 而立即停止本轮剩余上传。
         public let stoppedForAuthentication: Bool
@@ -101,7 +101,7 @@ public enum CodeCoverage {
         }
     }
 
-    /// 使用包内受限 Token 和当前地址覆盖执行唯一手动上传流程：先快照，再串行上传全部 pending，并在主线程回调；失败记录保持可恢复状态。
+    /// 使用受限 Token 执行手动上传：先快照，再统一 gzip 串行上传待传代表，主线程回调且失败保留原始记录。
     public static func uploadPending(completion: @escaping (Result<UploadResult, Error>) -> Void) {
         do {
             let t_metadata = try CoverageBuildMetadata.load()

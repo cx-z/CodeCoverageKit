@@ -1,9 +1,10 @@
 import Foundation
 import XCTest
+import zlib
 @testable import CodeCoverageKit
 
 final class CoverageUploadClientTests: XCTestCase {
-    /// 验证 Run 请求使用中性 boundary，且 multipart 严格只含 metadata、sha256、profile。
+    /// 验证所有 Run 使用 gzip，解压后的 multipart 保持原有字段、身份和凭证。
     func testPreparedRunRequestUsesExactFieldsAndRestrictedAuthorization() throws {
         let t_profile = Data("profile-data".utf8)
         let (t_url, t_record) = try p_writeProfile(t_profile)
@@ -16,7 +17,9 @@ final class CoverageUploadClientTests: XCTestCase {
             configuration: CoverageTestFixtures.configuration(host: "192.168.1.51")
         )
         let t_contentType = try XCTUnwrap(t_prepared.request.value(forHTTPHeaderField: "Content-Type"))
-        let t_body = String(decoding: t_prepared.body, as: UTF8.self)
+        let t_body = String(decoding: try p_decodeGzip(t_prepared.body), as: UTF8.self)
+        XCTAssertEqual(t_prepared.request.value(forHTTPHeaderField: "Content-Encoding"), "gzip")
+        XCTAssertEqual(t_prepared.request.value(forHTTPHeaderField: "Content-Length"), String(t_prepared.body.count))
 
         XCTAssertEqual(t_prepared.request.url?.path, "/api/v1/runs")
         XCTAssertTrue(t_contentType.contains("boundary=code-coverage-kit-run-"))
@@ -117,6 +120,58 @@ final class CoverageUploadClientTests: XCTestCase {
         }
         XCTAssertTrue(t_transportError.isRetryableInCurrentOperation)
         XCTAssertFalse(t_transportError.localizedDescription.contains(CoverageTestFixtures.token))
+    }
+
+    /// 验证本地编码失败不会生成原始上传任务，也不被判为永久数据损坏。
+    func testCompressionFailurePreservesRunWithoutFallback() throws {
+        let (t_url, t_record) = try p_writeProfile(Data("x".utf8))
+        defer { try? FileManager.default.removeItem(at: t_url.deletingLastPathComponent()) }
+        let t_client = CoverageUploadClient(session: CoverageURLProtocolStub.makeSession(), encoder: { _ in
+            throw CoverageGzip.EncodingError.inputTooLarge
+        })
+        XCTAssertThrowsError(try t_client.prepareUpload(record: t_record, profileURL: t_url,
+                                                       configuration: CoverageTestFixtures.configuration(host: "192.168.1.61"))) { error in
+            guard let t_error = error as? CoverageUploadClient.UploadError else { return XCTFail("wrong error") }
+            XCTAssertTrue(t_error.shouldStopBatch)
+            XCTAssertFalse(t_error.isPermanent)
+            XCTAssertFalse(t_error.isRetryableInCurrentOperation)
+        }
+        XCTAssertEqual(try Data(contentsOf: t_url), Data("x".utf8))
+    }
+
+    /// 验证空内容、小文件和大文件均使用有效且确定的 gzip 单 member。
+    func testGzipAlwaysEncodesAndRoundTrips() throws {
+        for t_data in [Data(), Data([1]), Data((0..<300000).map { UInt8(truncatingIfNeeded: $0) })] {
+            let t_encoded = try CoverageGzip.encode(t_data)
+            XCTAssertEqual(Array(t_encoded.prefix(2)), [0x1f, 0x8b])
+            XCTAssertEqual(try p_decodeGzip(t_encoded), t_data)
+            XCTAssertEqual(try CoverageGzip.encode(t_data), t_encoded)
+        }
+    }
+
+    /// 使用独立的系统 inflate 路径检查请求头、完整 gzip 结束标记和原始内容。
+    private func p_decodeGzip(_ data: Data) throws -> Data {
+        var t_stream = z_stream()
+        XCTAssertEqual(inflateInit2_(&t_stream, 16 + MAX_WBITS, ZLIB_VERSION, Int32(MemoryLayout<z_stream>.size)), Z_OK)
+        defer { inflateEnd(&t_stream) }
+        return try data.withUnsafeBytes { t_input in
+            t_stream.next_in = UnsafeMutablePointer<Bytef>(mutating: t_input.bindMemory(to: Bytef.self).baseAddress)
+            t_stream.avail_in = uInt(data.count)
+            var t_result = Data()
+            var t_chunk = [UInt8](repeating: 0, count: 65536)
+            var t_status = Z_OK
+            repeat {
+                t_status = t_chunk.withUnsafeMutableBytes { t_output in
+                    t_stream.next_out = t_output.bindMemory(to: Bytef.self).baseAddress
+                    t_stream.avail_out = uInt(t_output.count)
+                    return inflate(&t_stream, Z_NO_FLUSH)
+                }
+                guard t_status == Z_OK || t_status == Z_STREAM_END else { throw CoverageGzip.EncodingError.zlibFailure(t_status) }
+                t_result.append(contentsOf: t_chunk.prefix(t_chunk.count - Int(t_stream.avail_out)))
+            } while t_status != Z_STREAM_END
+            XCTAssertEqual(t_stream.avail_in, 0)
+            return t_result
+        }
     }
 
     /// 写入一次测试 profile，并返回与实际 size/SHA 一致的 Run 记录。

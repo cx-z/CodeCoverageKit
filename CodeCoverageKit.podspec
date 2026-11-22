@@ -1,6 +1,6 @@
 Pod::Spec.new do |spec|
   spec.name = 'CodeCoverageKit'
-  spec.version = '0.1.2'
+  spec.version = '0.1.3'
   spec.summary = 'LLVM coverage snapshot and upload support for internal iOS builds.'
   spec.description = <<-DESC
     CodeCoverageKit captures LLVM profile snapshots, persists pending Runs, and
@@ -25,6 +25,7 @@ Pod::Spec.new do |spec|
   ]
   spec.public_header_files = 'Sources/CodeCoverageRuntimeBridge/include/*.h'
   spec.frameworks = ['Foundation', 'UIKit']
+  spec.libraries = 'z'
   spec.pod_target_xcconfig = {
     'DEFINES_MODULE' => 'YES',
     'GCC_PREPROCESSOR_DEFINITIONS' => '$(inherited) CODE_COVERAGE_KIT_ENABLED=1',

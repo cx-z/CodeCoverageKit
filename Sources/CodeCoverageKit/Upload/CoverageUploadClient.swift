@@ -19,6 +19,7 @@ final class CoverageUploadClient {
     }
 
     enum UploadError: LocalizedError {
+        case encodingFailed
         case transport(String)
         case serverUnavailable(Int, String)
         case authenticationFailed
@@ -28,6 +29,8 @@ final class CoverageUploadClient {
 
         var errorDescription: String? {
             switch self {
+            case .encodingFailed:
+                return "覆盖率上传压缩失败，原始数据已保留，请修复后重试。"
             case .transport(let detail):
                 return "网络请求失败：\(detail)"
             case .serverUnavailable(let status, let detail):
@@ -53,20 +56,20 @@ final class CoverageUploadClient {
             }
         }
 
-        /// 401/403 表示整批请求继续发送没有意义，必须立即结束本轮。
+        /// 鉴权或编码失败停止整批，保留原始数据供后续用户操作恢复。
         var shouldStopBatch: Bool {
-            if case .authenticationFailed = self {
-                return true
+            switch self {
+            case .authenticationFailed, .encodingFailed: return true
+            default: return false
             }
-            return false
         }
 
-        /// 409 及不可恢复的协议/4xx 错误不会在后续用户操作中自动重试。
+        /// 内容冲突和不可恢复拒绝为永久失败；编码失败保留原始 Run 供后续恢复。
         var isPermanent: Bool {
             switch self {
             case .runConflict, .permanentRejection, .invalidResponse:
                 return true
-            case .transport, .serverUnavailable, .authenticationFailed:
+            case .transport, .serverUnavailable, .authenticationFailed, .encodingFailed:
                 return false
             }
         }
@@ -100,9 +103,11 @@ final class CoverageUploadClient {
     }
 
     private let vSession: URLSession
+    private let vEncode: (Data) throws -> Data
 
-    /// 创建独立的无缓存上传会话；该客户端不保存队列状态，也不会自行重试或后台上传。
-    init(session: URLSession? = nil) {
+    /// 创建无缓存会话和不可变 gzip 编码器；批次状态及重试由 Collector 所有。
+    init(session: URLSession? = nil, encoder: @escaping (Data) throws -> Data = CoverageGzip.encode) {
+        vEncode = encoder
         if let session {
             vSession = session
         } else {
@@ -136,7 +141,7 @@ final class CoverageUploadClient {
         return t_task
     }
 
-    /// 读取并校验既有 profile，构造一次不可变 Run 请求供上传流程和协议测试共用。
+    /// 校验原始 profile 并统一 gzip 编码 multipart，压缩失败不发送原始数据。
     func prepareUpload(
         record: CoverageSnapshotRecord,
         profileURL: URL,
@@ -158,14 +163,18 @@ final class CoverageUploadClient {
             filename: "\(record.runID).profraw",
             boundary: t_boundary
         )
+        let t_encoded: Data
+        do { t_encoded = try vEncode(t_body) }
+        catch { throw UploadError.encodingFailed }
         let t_url = try p_endpointURL(baseURL: configuration.serverURL, path: "/api/v1/runs")
         var t_request = URLRequest(url: t_url)
         t_request.httpMethod = "POST"
         t_request.timeoutInterval = 120
         t_request.setValue("Bearer \(configuration.runUploadToken)", forHTTPHeaderField: "Authorization")
         t_request.setValue("multipart/form-data; boundary=\(t_boundary)", forHTTPHeaderField: "Content-Type")
-        t_request.setValue(String(t_body.count), forHTTPHeaderField: "Content-Length")
-        return PreparedUpload(request: t_request, body: t_body)
+        t_request.setValue("gzip", forHTTPHeaderField: "Content-Encoding")
+        t_request.setValue(String(t_encoded.count), forHTTPHeaderField: "Content-Length")
+        return PreparedUpload(request: t_request, body: t_encoded)
     }
 
     /// 严格核对 HTTP 状态和六个身份字段，只有全部一致才返回服务端已接收。
@@ -212,10 +221,17 @@ final class CoverageUploadClient {
         )
     }
 
-    /// 将非成功 HTTP 响应分类为鉴权停止、永久冲突、可重试 5xx 或其他永久拒绝。
+    /// 将编码失败与 Run 内容拒绝分开；截断请求仍可使用原始身份重试。
     private func p_serverError(statusCode: Int, data: Data) -> UploadError {
         let t_payload = try? JSONDecoder().decode(ErrorResponse.self, from: data)
         let t_detail = t_payload?.error ?? t_payload?.message ?? HTTPURLResponse.localizedString(forStatusCode: statusCode)
+        if [400, 415].contains(statusCode),
+           ["unsupported_content_encoding", "invalid_compressed_body"].contains(t_payload?.error ?? "") {
+            return .encodingFailed
+        }
+        if statusCode == 400 && t_payload?.error == "incomplete_request" {
+            return .transport("上传请求未完整接收")
+        }
         switch statusCode {
         case 401, 403:
             return .authenticationFailed

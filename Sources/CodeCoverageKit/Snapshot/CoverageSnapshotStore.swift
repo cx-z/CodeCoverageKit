@@ -77,14 +77,15 @@ final class CoverageSnapshotStore {
         return t_deviceID
     }
 
-    /// 将一份 LLVM buffer 快照和其独立清单按 Build 分目录原子落盘，返回可排队上传的记录。
+    /// 原子保存原始 LLVM 快照及本启动采集序号，返回身份固定的独立记录。
     func createSnapshot(
         profileData: Data,
         metadata: CoverageBuildMetadata,
         deviceID: String,
         launchID: String,
         appState: String,
-        triggerReason: String
+        triggerReason: String,
+        captureSequence: Int? = nil
     ) throws -> CoverageSnapshotRecord {
         let t_runID = UUID().uuidString.lowercased()
         let t_buildDirectory = p_snapshotsRootURL().appendingPathComponent(metadata.buildID, isDirectory: true)
@@ -92,6 +93,7 @@ final class CoverageSnapshotStore {
         let t_profileURL = t_buildDirectory.appendingPathComponent("\(t_runID).profraw")
         try p_writeAtomically(profileData, to: t_profileURL)
         let t_record = CoverageSnapshotRecord(
+            captureSequence: captureSequence,
             schemaVersion: 1,
             runID: t_runID,
             cycleID: metadata.cycleID,
@@ -126,8 +128,8 @@ final class CoverageSnapshotStore {
         try p_writeAtomically(try vEncoder.encode(record), to: t_manifestURL)
     }
 
-    /// 恢复所有 Build 的快照清单，将进程中断遗留的 uploading 状态安全退回 pending。
-    func loadRecords() throws -> [CoverageSnapshotRecord] {
+    /// 恢复清单，仅将不属于本进程在途请求的 uploading 记录退回 pending。
+    func loadRecords(preservingUploading runIDs: Set<String> = []) throws -> [CoverageSnapshotRecord] {
         let t_buildDirectories = try vFileManager.contentsOfDirectory(
             at: p_snapshotsRootURL(),
             includingPropertiesForKeys: [.isDirectoryKey],
@@ -144,7 +146,7 @@ final class CoverageSnapshotStore {
             ).filter { $0.pathExtension == "json" }
             for t_manifestURL in t_manifestURLs {
                 var t_record = try vDecoder.decode(CoverageSnapshotRecord.self, from: Data(contentsOf: t_manifestURL))
-                if t_record.uploadStatus == .uploading {
+                if t_record.uploadStatus == .uploading && !runIDs.contains(t_record.runID) {
                     t_record.uploadStatus = .pending
                     t_record.lastError = "上次上传流程被进程退出中断，已恢复为待上传。"
                     try update(record: t_record)

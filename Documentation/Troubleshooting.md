@@ -29,6 +29,9 @@ Use the console category and message:
 - 413: payload exceeds the service limit.
 - 422 or echo mismatch: profile bytes, declared SHA or response identity failed validation.
 - network/5xx: retry through a new explicit user upload after connectivity recovers.
+- compression error / `unsupported_content_encoding` / `invalid_compressed_body`: raw files remain retryable; the batch stops. Verify the local server was updated first and inspect gzip implementation/framing. The new SDK never falls back to uncompressed uploads.
+
+Pending counts reflect upload representatives. Older snapshots from the same ordered launch may be represented by a newer valid snapshot, while their original files are retained. Records without a valid local `capture_sequence` still upload individually with gzip. Coalescing does not free local disk space.
 
 Never delete Application Support as the first diagnostic step; it destroys the pending evidence being investigated.
 

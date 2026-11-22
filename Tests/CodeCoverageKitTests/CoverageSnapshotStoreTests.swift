@@ -38,4 +38,25 @@ final class CoverageSnapshotStoreTests: XCTestCase {
         XCTAssertEqual(t_restored.uploadStatus, .pending)
         XCTAssertEqual(try Data(contentsOf: t_store.profileURL(record: t_restored)), t_profile)
     }
+    /// 验证活跃请求在前台恢复中保持 uploading，进程重启后才恢复为 pending。
+    func testReloadPreservesOnlyOwnedUploadAndSequence() throws {
+        let t_root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: t_root) }
+        let t_store = try CoverageSnapshotStore(rootURL: t_root)
+        var t_record = try t_store.createSnapshot(profileData: Data("profile".utf8),
+            metadata: CoverageTestFixtures.metadata(), deviceID: UUID().uuidString, launchID: UUID().uuidString,
+            appState: "active", triggerReason: "user_upload", captureSequence: 7)
+        t_record.uploadStatus = .uploading
+        try t_store.update(record: t_record)
+        let t_active = try XCTUnwrap(t_store.loadRecords(preservingUploading: [t_record.runID]).first)
+        XCTAssertEqual(t_active.uploadStatus, .uploading)
+        XCTAssertEqual(t_active.captureSequence, 7)
+        let t_restarted = try XCTUnwrap(t_store.loadRecords().first)
+        XCTAssertEqual(t_restarted.uploadStatus, .pending)
+        XCTAssertEqual(t_restarted.captureSequence, 7)
+        XCTAssertEqual(try Data(contentsOf: t_store.profileURL(record: t_record)), Data("profile".utf8))
+        let t_metadata = try JSONSerialization.jsonObject(with: t_restarted.makeRunMetadataData()) as? [String: Any]
+        XCTAssertNil(t_metadata?["capture_sequence"])
+    }
+
 }

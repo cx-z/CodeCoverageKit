@@ -2,6 +2,14 @@
 
 All notable changes to CodeCoverageKit are documented in this file.
 
+## 0.1.3 - 2026-11-22
+
+- Gzip-encode every Run multipart upload, including retries and historical pending records, in all network environments using system zlib.
+- Select validated, ordered same-launch cumulative snapshots as upload representatives while retaining every original profile and manifest; legacy records remain independently uploadable.
+- Preserve active upload ownership during foreground recovery and reject overlapping upload batches before capturing another snapshot.
+- Keep original Run identity, raw size/SHA and strict acknowledgement checks; encoding failures retain retryable data and stop the batch without uncompressed fallback.
+- Require the Coverage server's gzip upload support to be deployed before using this SDK version.
+
 ## 0.1.2 - 2026-11-04
 
 - Added a console Header with a title and back button for hosts that hide the system navigation bar.

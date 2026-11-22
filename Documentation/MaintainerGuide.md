@@ -8,7 +8,9 @@
 - UI state is main-actor isolated; network and storage orchestration do not move into the view controller.
 - Lifecycle capture never uploads. User intent is required for every Run upload batch.
 - A record's Cycle/Build identity is immutable across installations.
-- Run multipart and strict response matching remain aligned with the server contract.
+- Run multipart and strict response matching remain aligned with the server contract. Every new SDK Run request is gzip regardless of network; use system zlib consistently in SwiftPM and CocoaPods. Decode-only transport changes must not affect raw size/SHA or identity.
+- `CoverageUploadPlan` derives same-launch representatives only from validated, uniquely ordered local records; no file deletion, state relabelling, wall-clock ordering inference or cross-launch substitution. Freeze each batch; preserve active Run ownership during foreground reload.
+- Changes to coalescing require the real LLVM all-samples versus last-per-launch region/segment hit test and lifecycle/recovery tests; execution counts may differ, hit evidence must not decrease.
 - The restricted Run token never enters UI, UserDefaults, logs, errors or test snapshots.
 
 ## Host-neutrality policy

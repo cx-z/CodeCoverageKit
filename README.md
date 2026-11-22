@@ -34,7 +34,9 @@ if CodeCoverage.isAvailable {
 
 Hosts that provide their own UI can call `CodeCoverage.snapshot(completion:)` and `CodeCoverage.uploadPending(completion:)`. The host does not access the collector, store, upload client or LLVM bridge directly.
 
-Lifecycle collection is local-only. `start()` captures at launch, backgrounding captures again, and returning to the foreground restores persisted state. Uploading happens only through `uploadPending` or the console button; that action first creates a fresh snapshot and then uploads all pending Runs serially.
+Lifecycle collection is local-only. `start()` captures at launch, backgrounding captures again, and returning to the foreground restores persisted state. Uploading happens only through `uploadPending` or the console button; that action first creates a fresh snapshot and then serially uploads pending representatives, using gzip in all network environments. Validated, ordered snapshots from the same launch can share one representative; legacy records without ordering still upload individually. All original local files remain intact.
+
+Version 0.1.3 requires the Coverage server to support gzip Run uploads. Update the server before distributing the new SDK; compression failures preserve raw data and stop the batch without uncompressed fallback.
 
 ## Integration overview
 

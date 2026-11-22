@@ -10,6 +10,7 @@ struct CoverageSnapshotRecord: Codable, Equatable, Sendable {
         case failedPermanent = "failed_permanent"
     }
 
+    var captureSequence: Int? = nil
     let schemaVersion: Int
     let runID: String
     let cycleID: String
@@ -30,6 +31,7 @@ struct CoverageSnapshotRecord: Codable, Equatable, Sendable {
     var analyzable: Bool?
 
     enum CodingKeys: String, CodingKey {
+        case captureSequence = "capture_sequence"
         case schemaVersion = "schema_version"
         case runID = "run_id"
         case cycleID = "cycle_id"

@@ -26,7 +26,8 @@ let package = Package(
             path: "Sources/CodeCoverageKit",
             swiftSettings: [
                 .define("CODE_COVERAGE_KIT_ENABLED", .when(configuration: .debug))
-            ]
+            ],
+            linkerSettings: [.linkedLibrary("z")]
         ),
         .testTarget(
             name: "CodeCoverageKitTests",

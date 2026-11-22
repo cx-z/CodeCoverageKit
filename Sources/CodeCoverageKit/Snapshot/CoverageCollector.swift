@@ -10,6 +10,7 @@ final class CoverageCollector {
         let currentBuildID: String?
         let metadataError: String?
         let lastError: String?
+        var coalescedCount: Int = 0
         let pendingCount: Int
         let failedCount: Int
         let uploadedCount: Int
@@ -65,14 +66,21 @@ final class CoverageCollector {
     private var vDidLoadMetadata = false
     private var vDeviceID: String?
     private var vRecords: [String: CoverageSnapshotRecord] = [:]
+    private var vCaptureSequence = 0
+    private var vValidatedRunIDs = Set<String>()
+    private var vActiveRunID: String?
     private var vIsUploading = false
     private var vLastSnapshotSize: Int?
     private var vLastSnapshotDurationMilliseconds: Int?
     private var vLastError: String?
 
-    /// 创建唯一 Collector；所有可变状态、LLVM runtime 和文件访问均归专用串行队列所有。
-    private init(uploadClient: CoverageUploadClient = CoverageUploadClient()) {
+    /// 创建隔离 Collector；注入项用于协议验证，所有运行期访问仍归私有串行队列。
+    init(uploadClient: CoverageUploadClient = CoverageUploadClient(),
+         store: CoverageSnapshotStore? = nil, metadata: CoverageBuildMetadata? = nil) {
         vUploadClient = uploadClient
+        vStore = store
+        vMetadata = metadata
+        vDidLoadMetadata = metadata != nil
     }
 
     /// 在启动阶段恢复清单并保存一次当前计数快照，且全程不创建网络请求。
@@ -157,7 +165,7 @@ final class CoverageCollector {
         }
     }
 
-    /// 响应唯一的手动上传动作：先刷新快照，再串行上传所有 Build 的 pending/可重试记录。
+    /// 用户上传先检查批次所有权，再采集并冻结各启动的待传代表集合。
     func uploadAllPending(
         configuration: CoverageServerConfiguration,
         completion: @escaping (Result<UploadReport, Error>) -> Void
@@ -165,11 +173,11 @@ final class CoverageCollector {
         vQueue.async { [weak self] in
             guard let self else { return }
             do {
-                try p_prepareIfNeeded(reloadRecords: true)
                 guard !vIsUploading else { throw CollectorError.busy }
+                try p_prepareIfNeeded(reloadRecords: true)
                 let t_snapshot = try p_capture(appState: "active", triggerReason: "user_upload")
                 vIsUploading = true
-                let t_records = vRecords.values.filter {
+                let t_records = p_makeUploadPlan().records.filter {
                     $0.uploadStatus == .pending || $0.uploadStatus == .failedRetryable
                 }.sorted { $0.capturedAt < $1.capturedAt }
                 p_uploadNext(
@@ -189,7 +197,7 @@ final class CoverageCollector {
         }
     }
 
-    /// 初始化 Store、Build 身份、匿名设备身份和本地记录；调用方必须位于 Collector 队列。
+    /// 队列内初始化身份并恢复经校验的记录，保留当前在途上传的所有权。
     private func p_prepareIfNeeded(reloadRecords: Bool) throws {
         if vStore == nil {
             vStore = try CoverageSnapshotStore()
@@ -209,11 +217,14 @@ final class CoverageCollector {
             }
         }
         if reloadRecords || vRecords.isEmpty {
-            vRecords = Dictionary(uniqueKeysWithValues: try t_store.loadRecords().map { ($0.runID, $0) })
+            vValidatedRunIDs = []
+            let t_records = try t_store.loadRecords(preservingUploading: Set([vActiveRunID].compactMap { $0 }))
+            vRecords = Dictionary(uniqueKeysWithValues: t_records.map { ($0.runID, $0) })
+            vValidatedRunIDs = Set(t_records.map(\.runID))
         }
     }
 
-    /// 在串行边界内调用 LLVM buffer API，并先写 profile 再原子提交该 Run 清单。
+    /// 串行分配本启动递增序号，先写原始 profile 再提交不可变身份清单。
     private func p_capture(appState: String, triggerReason: String) throws -> (record: CoverageSnapshotRecord, duration: Int) {
         guard let t_store = vStore,
               let t_metadata = vMetadata,
@@ -222,6 +233,8 @@ final class CoverageCollector {
         }
         let t_startedAt = CFAbsoluteTimeGetCurrent()
         do {
+            guard vCaptureSequence < Int.max else { throw CollectorError.snapshotFailed("采集序号已耗尽") }
+            vCaptureSequence += 1
             let t_profileData = try CodeCoverageRuntimeBridge.snapshotData()
             let t_record = try t_store.createSnapshot(
                 profileData: t_profileData,
@@ -229,10 +242,12 @@ final class CoverageCollector {
                 deviceID: t_deviceID,
                 launchID: vLaunchID,
                 appState: appState,
-                triggerReason: triggerReason
+                triggerReason: triggerReason,
+                captureSequence: vCaptureSequence
             )
             let t_duration = max(0, Int((CFAbsoluteTimeGetCurrent() - t_startedAt) * 1_000))
             vRecords[t_record.runID] = t_record
+            vValidatedRunIDs.insert(t_record.runID)
             vLastSnapshotSize = t_record.size
             vLastSnapshotDurationMilliseconds = t_duration
             vLastError = nil
@@ -242,7 +257,7 @@ final class CoverageCollector {
         }
     }
 
-    /// 串行推进上传队列；单个 Run 只在本次用户操作中最多尝试三次网络/5xx 重试。
+    /// 串行上传冻结的代表；本地编码失败保留记录并停止整批，网络错误有限重试。
     private func p_uploadNext(
         records: [CoverageSnapshotRecord],
         index: Int,
@@ -269,6 +284,7 @@ final class CoverageCollector {
                 throw CollectorError.unavailable("覆盖率快照存储不可用。")
             }
             try t_store.validateProfile(record: t_record)
+            vActiveRunID = t_record.runID
             t_record.uploadStatus = .uploading
             t_record.retryCount += 1
             t_record.lastError = nil
@@ -295,7 +311,13 @@ final class CoverageCollector {
                     )
                 }
             }
+        } catch let t_error as CoverageUploadClient.UploadError {
+            p_handleUploadResult(.failure(t_error), record: t_record, records: records, index: index,
+                                 attempt: attempt, configuration: configuration, snapshot: snapshot,
+                                 uploadedRunIDs: uploadedRunIDs, failedRunIDs: failedRunIDs, completion: completion)
         } catch {
+            vActiveRunID = nil
+            vValidatedRunIDs.remove(t_record.runID)
             t_record.uploadStatus = .failedPermanent
             t_record.lastError = error.localizedDescription
             try? p_save(record: t_record)
@@ -312,7 +334,7 @@ final class CoverageCollector {
         }
     }
 
-    /// 应用严格响应结果，决定成功、当前操作内重试、永久失败或鉴权停止整批。
+    /// 仅当前在途 Run 的回调可提交状态；编码或鉴权失败停止批次且保留原始文件。
     private func p_handleUploadResult(
         _ result: Result<CoverageUploadClient.AcceptedRun, CoverageUploadClient.UploadError>,
         record: CoverageSnapshotRecord,
@@ -325,6 +347,7 @@ final class CoverageCollector {
         failedRunIDs: [String],
         completion: @escaping (Result<UploadReport, Error>) -> Void
     ) {
+        guard vIsUploading, vActiveRunID == record.runID else { return }
         var t_record = record
         switch result {
         case .success(let accepted):
@@ -374,7 +397,7 @@ final class CoverageCollector {
                     snapshot: snapshot,
                     uploadedRunIDs: uploadedRunIDs,
                     failedRunIDs: failedRunIDs + [t_record.runID],
-                    stoppedForAuthentication: true,
+                    stoppedForAuthentication: { if case .authenticationFailed = error { return true }; return false }(),
                     completion: completion
                 )
             } else {
@@ -410,6 +433,7 @@ final class CoverageCollector {
         completion: @escaping (Result<UploadReport, Error>) -> Void
     ) {
         vIsUploading = false
+        vActiveRunID = nil
         let t_report = UploadReport(
             snapshotRunID: snapshot.record.runID,
             snapshotSize: snapshot.record.size,
@@ -429,12 +453,20 @@ final class CoverageCollector {
         completion: @escaping (Result<UploadReport, Error>) -> Void
     ) {
         vIsUploading = false
+        vActiveRunID = nil
         p_deliverOnMain(.failure(error), completion: completion)
     }
 
-    /// 从队列内状态生成计数和当前 Build 的不可变展示模型。
+    /// 派生经校验的代表集合，保护本进程正在上传的 Run 不被更新快照隐藏。
+    private func p_makeUploadPlan() -> CoverageUploadPlan {
+        CoverageUploadPlan(records: Array(vRecords.values), validRunIDs: vValidatedRunIDs,
+                           protectedRunIDs: Set([vActiveRunID].compactMap { $0 }))
+    }
+
+    /// 按有效代表展示待传/失败数量，只有实际确认的记录计入 uploaded。
     private func p_makeSummary() -> Summary {
-        let t_records = vRecords.values.sorted { $0.capturedAt < $1.capturedAt }
+        let t_plan = p_makeUploadPlan()
+        let t_records = t_plan.records
         let t_pendingCount = t_records.filter {
             $0.uploadStatus == .pending || $0.uploadStatus == .uploading
         }.count
@@ -447,6 +479,7 @@ final class CoverageCollector {
             currentBuildID: vMetadata?.buildID,
             metadataError: vMetadataError,
             lastError: vLastError ?? t_records.last(where: { $0.lastError != nil })?.lastError,
+            coalescedCount: t_plan.suppressedRunIDs.count,
             pendingCount: t_pendingCount,
             failedCount: t_failedCount,
             uploadedCount: t_uploadedCount,
