@@ -17,6 +17,7 @@ final class CoverageCollectorTests: XCTestCase {
         XCTAssertTrue(t_report.uploadedRunIDs.isEmpty)
         XCTAssertEqual(t_report.failedRunIDs.count, 1)
         XCTAssertFalse(t_report.stoppedForAuthentication)
+        XCTAssertNil(t_report.snapshotUpload)
         XCTAssertEqual(t_report.summary.failedCount, 1)
         let t_records = try t_store.loadRecords()
         XCTAssertEqual(t_records.count, 2)
@@ -63,6 +64,59 @@ final class CoverageCollectorTests: XCTestCase {
         let t_records = try t_store.loadRecords()
         XCTAssertEqual(t_records.count, 2)
         XCTAssertEqual(t_records.filter { $0.uploadStatus == .failedRetryable }.count, 1)
+    }
+
+    /// 多启动批次仅回传最新 Run 的成功统计，下一批失败不会沿用上一批或旧 Run 的数据。
+    func testCompressionStatisticsBelongToLatestAcknowledgedSnapshot() async throws {
+        let t_root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: t_root) }
+        let t_store = try CoverageSnapshotStore(rootURL: t_root)
+        let t_metadata = try CoverageTestFixtures.metadata()
+        let t_old = try t_store.createSnapshot(
+            profileData: Data(repeating: 42, count: 1234), metadata: t_metadata,
+            deviceID: try t_store.loadOrCreateDeviceID(), launchID: UUID().uuidString.lowercased(),
+            appState: "active", triggerReason: "user_upload", captureSequence: 1
+        )
+        let t_host = "192.168.1.77"
+        defer { CoverageURLProtocolStub.unregister(host: t_host) }
+        CoverageURLProtocolStub.register(host: t_host) { _ in
+            do {
+                // Read manifests without triggering the store's interrupted-upload recovery.
+                let t_directory = t_root.appendingPathComponent("snapshots/\(t_metadata.buildID)")
+                let t_records = try FileManager.default.contentsOfDirectory(at: t_directory, includingPropertiesForKeys: nil)
+                    .filter { $0.pathExtension == "json" }
+                    .map { try JSONDecoder().decode(CoverageSnapshotRecord.self, from: Data(contentsOf: $0)) }
+                let t_record = try XCTUnwrap(t_records.first { $0.uploadStatus == .uploading })
+                let t_body: [String: Any] = [
+                    "status": "accepted", "run_id": t_record.runID, "cycle_id": t_record.cycleID,
+                    "build_id": t_record.buildID, "sha256": t_record.sha256, "size": t_record.size,
+                    "received_at": "2026-09-03T00:00:01Z", "analyzable": true
+                ]
+                return CoverageURLProtocolStub.StubResponse(statusCode: 201, body: try JSONSerialization.data(withJSONObject: t_body))
+            } catch {
+                XCTFail("无法读取在途 Run：\(error)")
+                return CoverageURLProtocolStub.StubResponse(statusCode: 422)
+            }
+        }
+        let t_collector = CoverageCollector(
+            uploadClient: CoverageUploadClient(session: CoverageURLProtocolStub.makeSession()),
+            store: t_store, metadata: t_metadata
+        )
+        let t_report = try await p_upload(t_collector)
+        XCTAssertEqual(Set(t_report.uploadedRunIDs), Set([t_old.runID, t_report.snapshotRunID]))
+        let t_upload = try XCTUnwrap(t_report.snapshotUpload)
+        XCTAssertEqual(t_upload.runID, t_report.snapshotRunID)
+        XCTAssertEqual(t_upload.size, t_report.snapshotSize)
+        XCTAssertGreaterThan(t_upload.compressedBodySize, 0)
+        XCTAssertGreaterThan(t_upload.uncompressedBodySize, t_report.snapshotSize)
+
+        CoverageURLProtocolStub.register(host: t_host) { _ in
+            CoverageURLProtocolStub.StubResponse(statusCode: 400, body: Data(#"{"error":"invalid_compressed_body"}"#.utf8))
+        }
+        let t_failed = try await p_upload(t_collector)
+        XCTAssertNil(t_failed.snapshotUpload)
+        XCTAssertTrue(t_failed.uploadedRunIDs.isEmpty)
+        XCTAssertEqual(t_failed.failedRunIDs, [t_failed.snapshotRunID])
     }
 
     /// 在主线程回调中等待一次真实 runtime 快照写盘，不执行网络。

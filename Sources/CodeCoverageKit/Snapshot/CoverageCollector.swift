@@ -24,6 +24,7 @@ final class CoverageCollector {
         let snapshotSize: Int
         let snapshotSHA256: String
         let snapshotDurationMilliseconds: Int
+        let snapshotUpload: CoverageUploadClient.AcceptedRun?
         let uploadedRunIDs: [String]
         let failedRunIDs: [String]
         let stoppedForAuthentication: Bool
@@ -70,6 +71,7 @@ final class CoverageCollector {
     private var vValidatedRunIDs = Set<String>()
     private var vActiveRunID: String?
     private var vIsUploading = false
+    private var vSnapshotUpload: CoverageUploadClient.AcceptedRun?
     private var vLastSnapshotSize: Int?
     private var vLastSnapshotDurationMilliseconds: Int?
     private var vLastError: String?
@@ -165,7 +167,7 @@ final class CoverageCollector {
         }
     }
 
-    /// 用户上传先检查批次所有权，再采集并冻结各启动的待传代表集合。
+    /// 检查批次所有权后采集并冻结代表集合，同时清空上一批最新快照的上传统计。
     func uploadAllPending(
         configuration: CoverageServerConfiguration,
         completion: @escaping (Result<UploadReport, Error>) -> Void
@@ -177,6 +179,7 @@ final class CoverageCollector {
                 try p_prepareIfNeeded(reloadRecords: true)
                 let t_snapshot = try p_capture(appState: "active", triggerReason: "user_upload")
                 vIsUploading = true
+                vSnapshotUpload = nil
                 let t_records = p_makeUploadPlan().records.filter {
                     $0.uploadStatus == .pending || $0.uploadStatus == .failedRetryable
                 }.sorted { $0.capturedAt < $1.capturedAt }
@@ -334,7 +337,7 @@ final class CoverageCollector {
         }
     }
 
-    /// 仅当前在途 Run 的回调可提交状态；编码或鉴权失败停止批次且保留原始文件。
+    /// 在 Collector 队列提交当前 Run 状态，仅为本批最新快照记录成功上传统计。
     private func p_handleUploadResult(
         _ result: Result<CoverageUploadClient.AcceptedRun, CoverageUploadClient.UploadError>,
         record: CoverageSnapshotRecord,
@@ -357,6 +360,9 @@ final class CoverageCollector {
             t_record.analyzable = accepted.analyzable
             do {
                 try p_save(record: t_record)
+                if accepted.runID == snapshot.record.runID {
+                    vSnapshotUpload = accepted
+                }
                 p_uploadNext(
                     records: records,
                     index: index + 1,
@@ -424,7 +430,7 @@ final class CoverageCollector {
         vRecords[record.runID] = record
     }
 
-    /// 完成一批用户触发上传，恢复空闲状态并向主线程返回不可变报告。
+    /// 完成批次并回传最新快照的可选成功上传统计，再清空队列拥有的临时统计。
     private func p_finishUpload(
         snapshot: (record: CoverageSnapshotRecord, duration: Int),
         uploadedRunIDs: [String],
@@ -439,21 +445,24 @@ final class CoverageCollector {
             snapshotSize: snapshot.record.size,
             snapshotSHA256: snapshot.record.sha256,
             snapshotDurationMilliseconds: snapshot.duration,
+            snapshotUpload: vSnapshotUpload,
             uploadedRunIDs: uploadedRunIDs,
             failedRunIDs: failedRunIDs,
             stoppedForAuthentication: stoppedForAuthentication,
             summary: p_makeSummary()
         )
+        vSnapshotUpload = nil
         p_deliverOnMain(.success(t_report), completion: completion)
     }
 
-    /// 在无法继续维护本地状态时结束上传并向 UI 返回错误。
+    /// 本地状态无法维护时结束批次并清空临时上传统计，向 UI 返回错误。
     private func p_finishUploadWithError(
         _ error: Error,
         completion: @escaping (Result<UploadReport, Error>) -> Void
     ) {
         vIsUploading = false
         vActiveRunID = nil
+        vSnapshotUpload = nil
         p_deliverOnMain(.failure(error), completion: completion)
     }
 

@@ -176,7 +176,7 @@ final class CoverageConsoleViewModel {
         }
     }
 
-    /// 使用包内凭证触发唯一手动流程：先快照，再串行上传全部历史 pending。
+    /// 手动采集并上传待传代表，在主 Actor 展示最新快照的原始大小与成功请求压缩统计。
     func uploadCoverageData() {
         do {
             let t_configuration = try p_validatedConfiguration()
@@ -203,7 +203,7 @@ final class CoverageConsoleViewModel {
                         ViewState(
                             kind: t_kind,
                             title: t_title,
-                            detail: "最新 Run：\(report.snapshotRunID)\n大小：\(report.snapshotSize) 字节\nSHA-256：\(report.snapshotSHA256)\n快照耗时：\(report.snapshotDurationMilliseconds) ms\n本轮上传：\(report.uploadedRunIDs.count)\n本轮失败：\(report.failedRunIDs.count)",
+                            detail: "最新 Run：\(report.snapshotRunID)\n原始快照大小：\(report.snapshotSize) 字节\n\(p_compressionDetail(report.snapshotUpload))\nSHA-256：\(report.snapshotSHA256)\n快照耗时：\(report.snapshotDurationMilliseconds) ms\n本轮上传：\(report.uploadedRunIDs.count)\n本轮失败：\(report.failedRunIDs.count)",
                             isBusy: false
                         )
                     )
@@ -222,6 +222,19 @@ final class CoverageConsoleViewModel {
         } catch {
             p_setConfigurationError(error)
         }
+    }
+
+    /// 以完整 multipart 请求体计算压缩后占比；最新 Run 未成功上传时明确显示缺少统计。
+    private func p_compressionDetail(_ upload: CoverageUploadClient.AcceptedRun?) -> String {
+        guard let upload, upload.uncompressedBodySize > 0 else {
+            return "压缩后上传大小：未成功上传\n压缩比例：—"
+        }
+        let t_ratio = Double(upload.compressedBodySize) / Double(upload.uncompressedBodySize) * 100
+        let t_ratioText = String(format: "%.1f%%", t_ratio)
+        let t_changeText = t_ratio <= 100
+            ? "减少 \(String(format: "%.1f%%", 100 - t_ratio))"
+            : "增大 \(String(format: "%.1f%%", t_ratio - 100))"
+        return "压缩后上传大小：\(upload.compressedBodySize) 字节（含 multipart）\n压缩比例：\(t_ratioText)（\(t_changeText)，按完整请求体计算）"
     }
 
     /// 取消当前请求并恢复可操作状态，供页面退出或后续扩展显式取消使用。

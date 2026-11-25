@@ -5,9 +5,10 @@ final class CoverageUploadClient {
     struct PreparedUpload {
         let request: URLRequest
         let body: Data
+        let uncompressedBodySize: Int
     }
 
-    struct AcceptedRun {
+    struct AcceptedRun: Sendable {
         let runID: String
         let cycleID: String
         let buildID: String
@@ -16,6 +17,8 @@ final class CoverageUploadClient {
         let receivedAt: String
         let analyzable: Bool
         let statusCode: Int
+        let compressedBodySize: Int
+        let uncompressedBodySize: Int
     }
 
     enum UploadError: LocalizedError {
@@ -120,7 +123,7 @@ final class CoverageUploadClient {
         }
     }
 
-    /// 上传一个既有 Run；multipart 严格只含 metadata、sha256、profile，且不在内部创建新 run_id。
+    /// 上传既有 Run，并随严格校验后的响应返回该次请求体压缩前后的字节数。
     @discardableResult
     func upload(
         record: CoverageSnapshotRecord,
@@ -135,13 +138,15 @@ final class CoverageUploadClient {
         )
         let t_task = vSession.uploadTask(with: t_preparedUpload.request, from: t_preparedUpload.body) { [weak self] data, response, error in
             guard let self else { return }
-            completion(p_validateResponse(data: data, response: response, error: error, record: record))
+            completion(p_validateResponse(data: data, response: response, error: error, record: record,
+                                          compressedBodySize: t_preparedUpload.body.count,
+                                          uncompressedBodySize: t_preparedUpload.uncompressedBodySize))
         }
         t_task.resume()
         return t_task
     }
 
-    /// 校验原始 profile 并统一 gzip 编码 multipart，压缩失败不发送原始数据。
+    /// 校验原始 profile 并 gzip 编码 multipart，保留压缩前大小供展示，失败不发送原始数据。
     func prepareUpload(
         record: CoverageSnapshotRecord,
         profileURL: URL,
@@ -174,15 +179,17 @@ final class CoverageUploadClient {
         t_request.setValue("multipart/form-data; boundary=\(t_boundary)", forHTTPHeaderField: "Content-Type")
         t_request.setValue("gzip", forHTTPHeaderField: "Content-Encoding")
         t_request.setValue(String(t_encoded.count), forHTTPHeaderField: "Content-Length")
-        return PreparedUpload(request: t_request, body: t_encoded)
+        return PreparedUpload(request: t_request, body: t_encoded, uncompressedBodySize: t_body.count)
     }
 
-    /// 严格核对 HTTP 状态和六个身份字段，只有全部一致才返回服务端已接收。
+    /// 严格核对 HTTP 状态和身份回显，成功时携带本地请求大小，不改变原始 profile 校验口径。
     private func p_validateResponse(
         data: Data?,
         response: URLResponse?,
         error: Error?,
-        record: CoverageSnapshotRecord
+        record: CoverageSnapshotRecord,
+        compressedBodySize: Int,
+        uncompressedBodySize: Int
     ) -> Result<AcceptedRun, UploadError> {
         if let error {
             return .failure(.transport(error.localizedDescription))
@@ -216,7 +223,9 @@ final class CoverageUploadClient {
                 size: t_payload.size,
                 receivedAt: t_payload.receivedAt,
                 analyzable: t_payload.analyzable,
-                statusCode: t_httpResponse.statusCode
+                statusCode: t_httpResponse.statusCode,
+                compressedBodySize: compressedBodySize,
+                uncompressedBodySize: uncompressedBodySize
             )
         )
     }

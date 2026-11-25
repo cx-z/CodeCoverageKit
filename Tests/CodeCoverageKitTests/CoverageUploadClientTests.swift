@@ -4,7 +4,7 @@ import zlib
 @testable import CodeCoverageKit
 
 final class CoverageUploadClientTests: XCTestCase {
-    /// 验证所有 Run 使用 gzip，解压后的 multipart 保持原有字段、身份和凭证。
+    /// 验证 gzip 请求的原始 multipart 大小准确，且解压后字段、身份和凭证保持不变。
     func testPreparedRunRequestUsesExactFieldsAndRestrictedAuthorization() throws {
         let t_profile = Data("profile-data".utf8)
         let (t_url, t_record) = try p_writeProfile(t_profile)
@@ -17,7 +17,10 @@ final class CoverageUploadClientTests: XCTestCase {
             configuration: CoverageTestFixtures.configuration(host: "192.168.1.51")
         )
         let t_contentType = try XCTUnwrap(t_prepared.request.value(forHTTPHeaderField: "Content-Type"))
-        let t_body = String(decoding: try p_decodeGzip(t_prepared.body), as: UTF8.self)
+        let t_decoded = try p_decodeGzip(t_prepared.body)
+        let t_body = String(decoding: t_decoded, as: UTF8.self)
+        XCTAssertEqual(t_prepared.uncompressedBodySize, t_decoded.count)
+        XCTAssertGreaterThan(t_prepared.uncompressedBodySize, t_record.size)
         XCTAssertEqual(t_prepared.request.value(forHTTPHeaderField: "Content-Encoding"), "gzip")
         XCTAssertEqual(t_prepared.request.value(forHTTPHeaderField: "Content-Length"), String(t_prepared.body.count))
 
@@ -31,7 +34,7 @@ final class CoverageUploadClientTests: XCTestCase {
         XCTAssertTrue(t_body.contains(#"filename="33333333-3333-4333-8333-333333333333.profraw""#))
     }
 
-    /// 验证 200/201/202 中只有身份字段全部一致的 accepted 响应才会被接受。
+    /// 验证 accepted 回显仍使用原始 profile 大小，压缩统计来自当前请求体。
     func testAcceptedRunResponseRequiresExactIdentity() async throws {
         let t_profile = Data("accepted-profile".utf8)
         let (t_url, t_record) = try p_writeProfile(t_profile)
@@ -46,7 +49,7 @@ final class CoverageUploadClientTests: XCTestCase {
         defer { CoverageURLProtocolStub.unregister(host: t_host) }
 
         let t_result = try await p_upload(
-            client: CoverageUploadClient(session: CoverageURLProtocolStub.makeSession()),
+            client: CoverageUploadClient(session: CoverageURLProtocolStub.makeSession(), encoder: { _ in Data([1, 2, 3]) }),
             record: t_record,
             profileURL: t_url,
             host: t_host
@@ -57,6 +60,13 @@ final class CoverageUploadClientTests: XCTestCase {
         }
         XCTAssertEqual(t_accepted.statusCode, 202)
         XCTAssertEqual(t_accepted.runID, t_record.runID)
+        XCTAssertEqual(t_accepted.size, t_profile.count)
+        XCTAssertEqual(t_accepted.compressedBodySize, 3)
+        let t_prepared = try CoverageUploadClient().prepareUpload(
+            record: t_record, profileURL: t_url,
+            configuration: CoverageTestFixtures.configuration(host: t_host)
+        )
+        XCTAssertEqual(t_accepted.uncompressedBodySize, t_prepared.uncompressedBodySize)
     }
 
     /// 验证成功 HTTP 中任何 Run 身份回显不一致都会保持本地记录未上传。
