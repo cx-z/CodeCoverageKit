@@ -9,7 +9,7 @@ Pod::Spec.new do |spec|
   spec.homepage = 'https://github.com/cx-z/CodeCoverageKit'
   spec.license = {
     :type => 'Apache-2.0',
-    :file => 'LICENSE'
+    :file => 'Vendor/LLVMProfileMerge/NOTICE.txt'
   }
   spec.author = 'CodeCoverageKit Contributors'
   spec.source = {
@@ -19,20 +19,12 @@ Pod::Spec.new do |spec|
   spec.ios.deployment_target = '15.0'
   spec.swift_version = '5.9'
   spec.static_framework = true
-  spec.default_subspecs = 'Core'
-  spec.subspec 'Core' do |core|
-    core.source_files = ['Sources/CodeCoverageKit/**/*.swift', 'Sources/CodeCoverageRuntimeBridge/**/*.{h,m}']
-    core.public_header_files = 'Sources/CodeCoverageRuntimeBridge/include/*.h'
-  end
-  spec.subspec 'OfflineMerge' do |merge|
-    merge.dependency 'CodeCoverageKit/Core'
-    merge.source_files = 'ProfileMergeSupport/Sources/*.swift'
-    merge.vendored_frameworks = 'ProfileMergeSupport/Artifacts/CCKProfileMerge.xcframework'
-    merge.libraries = ['c++', 'z']
-    merge.preserve_paths = 'ProfileMergeSupport/Artifacts/LLVM-LICENSE.txt'
-  end
+  spec.source_files = ['Sources/CodeCoverageKit/**/*.swift', 'Sources/CodeCoverageRuntimeBridge/**/*.{h,m}']
+  spec.public_header_files = 'Sources/CodeCoverageRuntimeBridge/include/*.h'
+  spec.vendored_frameworks = 'Vendor/LLVMProfileMerge/CCKProfileMerge.xcframework'
+  spec.preserve_paths = 'Vendor/LLVMProfileMerge/*.{txt,json,md}'
   spec.frameworks = ['Foundation', 'UIKit']
-  spec.libraries = 'z'
+  spec.libraries = ['z', 'c++']
   spec.pod_target_xcconfig = {
     'DEFINES_MODULE' => 'YES',
     'GCC_PREPROCESSOR_DEFINITIONS' => '$(inherited) CODE_COVERAGE_KIT_ENABLED=1',

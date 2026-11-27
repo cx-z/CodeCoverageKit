@@ -1,19 +1,17 @@
 #if CODE_COVERAGE_KIT_ENABLED
 import Foundation
 import CCKProfileMerge
-#if SWIFT_PACKAGE || CCK_OFFLINE_MERGE_SEPARATE_MODULE
-@_spi(OfflineMerge) import CodeCoverageKit
-#endif
 
-/// Optional Coverage-only installation; source semantics, resource limits and true-device acceptance remain release gates.
-public enum CoverageOfflineMerge {
-    /// Registers LLVM 20.1.8 without enabling uploads. Internal acceptance builds may supply explicitly experimental budgets.
-    @_spi(OfflineMerge) public static func install(limits: CoverageMergeLimits) {
-        CoverageOfflineMergeRuntime.install(limits: limits) { try merge(profiles: $0, limits: $1) }
+/// Internal offline LLVM bridge; the public facade owns automatic installation and the local switch.
+enum CoverageLLVMProfileMerger {
+    /// Installs the built-in engine and provisional SDK budgets before enabling the next manual upload on its serial owner.
+    static func install(on collector: CoverageCollector) {
+        collector.installMergeEngine(limits: .builtIn, engine: { try merge(profiles: $0, limits: $1) })
+        collector.setCrossLaunchMergeEnabled(true)
     }
 
     /// Copies an independent complete result across the C boundary while retaining every NSData input for the whole call.
-    @_spi(OfflineMerge) public static func merge(profiles: [Data], limits: CoverageMergeLimits) throws -> Data {
+    static func merge(profiles: [Data], limits: CoverageMergeLimits) throws -> Data {
         guard (2...64).contains(limits.maxSources), (2...limits.maxSources).contains(profiles.count),
               limits.maxInputBytes > 0, limits.maxOutputBytes > 0, limits.maxRecords > 0,
               (1...60_000).contains(limits.timeoutMilliseconds) else {

@@ -144,6 +144,6 @@ Choose an Xcode version supported by the host project and use the same Developer
 
 Local-network permission is controlled by iOS. If the system asks, grant it normally; the SDK does not bypass it.
 
-## Optional cross-launch merging
+## Built-in cross-launch merging
 
-Core remains dependency-free of LLVM and starts with cross-launch merging off. Do not enable it from a successful compile. The separately built local package/CocoaPods subspec, format limitations, measured-budget SPI and required device acceptance are documented in [OfflineProfileMerge](OfflineProfileMerge.md). Same-launch latest-only substitution is conservatively disabled; individual gzip may therefore send more preserved snapshots than earlier versions.
+The single `CodeCoverageKit` dependency includes the pinned LLVM library. `CodeCoverage.start()` installs the engine and enables merging internally; no second Pod, import, provider or budget setup is required. The console can disable it. SDK-owned provisional limits, supported formats, fallback and pending device acceptance are documented in [OfflineProfileMerge](OfflineProfileMerge.md). Same-launch latest-only substitution remains disabled.

@@ -1,8 +1,29 @@
 import Foundation
 import XCTest
-@testable import CodeCoverageKit
+@_spi(OfflineMerge) @testable import CodeCoverageKit
 
 final class CoverageAggregationTests: XCTestCase {
+    /// Uses the same SDK bootstrap as start, confirms the internal engine/default switch, and preserves the local off control.
+    func testBuiltInAssemblyEnablesMergeWithoutHostProvider() async throws {
+        let t_root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: t_root) }
+        let t_store = try CoverageSnapshotStore(rootURL: t_root)
+        let t_collector = CoverageCollector(store: t_store, metadata: try CoverageTestFixtures.metadata())
+        XCTAssertTrue(CoverageMergeLimits.builtIn.isValid)
+        CoverageLLVMProfileMerger.install(on: t_collector)
+        let t_enabled = await withCheckedContinuation { continuation in
+            t_collector.fetchSummary { continuation.resume(returning: $0) }
+        }
+        XCTAssertTrue(t_enabled.mergeAvailable)
+        XCTAssertTrue(t_enabled.mergeEnabled)
+        t_collector.setCrossLaunchMergeEnabled(false)
+        let t_disabled = await withCheckedContinuation { continuation in
+            t_collector.fetchSummary { continuation.resume(returning: $0) }
+        }
+        XCTAssertTrue(t_disabled.mergeAvailable)
+        XCTAssertFalse(t_disabled.mergeEnabled)
+    }
+
     /// Matches Python canonical JSON including slash, Unicode, controls, integer limits, arrays and absent optional fields.
     func testCanonicalMetadataGolden() throws {
         let t_value: [String: Any] = ["z": ["中/😀\u{2028}\n\"\\\u{1}", 9223372036854775807] as [Any], "a": ["process_id": 42]]

@@ -12,6 +12,7 @@ let package = Package(
         .library(name: "CodeCoverageKit", targets: ["CodeCoverageKit"])
     ],
     targets: [
+        .binaryTarget(name: "CCKProfileMerge", path: "Vendor/LLVMProfileMerge/CCKProfileMerge.xcframework"),
         .target(
             name: "CodeCoverageRuntimeBridge",
             path: "Sources/CodeCoverageRuntimeBridge",
@@ -22,12 +23,12 @@ let package = Package(
         ),
         .target(
             name: "CodeCoverageKit",
-            dependencies: ["CodeCoverageRuntimeBridge"],
+            dependencies: ["CodeCoverageRuntimeBridge", "CCKProfileMerge"],
             path: "Sources/CodeCoverageKit",
             swiftSettings: [
                 .define("CODE_COVERAGE_KIT_ENABLED", .when(configuration: .debug))
             ],
-            linkerSettings: [.linkedLibrary("z")]
+            linkerSettings: [.linkedLibrary("z"), .linkedLibrary("c++")]
         ),
         .testTarget(
             name: "CodeCoverageKitTests",

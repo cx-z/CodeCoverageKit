@@ -1,6 +1,6 @@
 # CodeCoverageKit
 
-`CodeCoverageKit` is a source Swift Package for collecting LLVM coverage profiles from internal iOS builds. It snapshots `.profraw` data locally, survives app restarts and overwrite installs, uploads only after an explicit user action, and includes an optional UIKit diagnostics console.
+`CodeCoverageKit` is a Swift Package with a pinned LLVM binary dependency for collecting LLVM coverage profiles from internal iOS builds. It snapshots `.profraw` data locally, survives app restarts and overwrite installs, uploads only after an explicit user action, and includes an optional UIKit diagnostics console.
 
 ## Package layout
 
@@ -34,7 +34,7 @@ if CodeCoverage.isAvailable {
 
 Hosts that provide their own UI can call `CodeCoverage.snapshot(completion:)` and `CodeCoverage.uploadPending(completion:)`. The host does not access the collector, store, upload client or LLVM bridge directly.
 
-Lifecycle collection is local-only. `start()` captures at launch, backgrounding captures again, and returning to the foreground restores persisted state. Uploading happens only through `uploadPending` or the console button; that action first creates a fresh snapshot and then serially uploads pending representatives, using gzip in all network environments. Latest-only same-launch substitution is disabled after concurrent hit-equivalence failures; all valid unconfirmed raw inputs upload individually unless an enabled, validated offline merge is adopted. All original local files remain intact.
+Lifecycle collection is local-only. `start()` captures at launch, backgrounding captures again, and returning to the foreground restores persisted state. Uploading happens only through `uploadPending` or the console button; that action first creates a fresh snapshot and then serially uploads pending representatives, using gzip in all network environments. Latest-only same-launch substitution is disabled after concurrent hit-equivalence failures; all valid unconfirmed raw inputs upload individually unless the built-in enabled offline merger passes the format, budget and benefit checks. All original local files remain intact.
 
 Version 0.1.3 requires the Coverage server to support gzip Run uploads. Update the server before distributing the new SDK; compression failures preserve raw data and stop the batch without uncompressed fallback.
 
@@ -117,4 +117,4 @@ This repository does not include the Coverage server, `coveragectl`, a sample ap
 
 CodeCoverageKit is available under the [Apache License 2.0](LICENSE).
 
-Offline cross-launch merging is an optional, locally built Coverage dependency, off by default and pending device acceptance. See [OfflineProfileMerge](Documentation/OfflineProfileMerge.md). Current uploads conservatively preserve every unconfirmed raw input; latest-only same-launch substitution is disabled because concurrent sampling does not generally preserve the earlier hit set.
+Offline cross-launch merging is built into the single SDK dependency and enabled by `CodeCoverage.start()`. Hosts need no second Pod/product/import or engine configuration. Provisional internal budgets and pending true-device acceptance are described in [OfflineProfileMerge](Documentation/OfflineProfileMerge.md). Current uploads preserve every unconfirmed raw input; latest-only same-launch substitution remains disabled.

@@ -31,7 +31,7 @@ Use the console category and message:
 - network/5xx: retry through a new explicit user upload after connectivity recovers.
 - compression error / `unsupported_content_encoding` / `invalid_compressed_body`: raw files remain retryable; the batch stops. Verify the local server was updated first and inspect gzip implementation/framing. The new SDK never falls back to uncompressed uploads.
 
-Pending counts reflect unconfirmed original sources. Latest-only same-launch substitution is disabled because concurrent snapshots can differ in region/line/branch hit state from the last snapshot alone. Every valid unconfirmed original is kept eligible for gzip. Optional cross-launch merge is off by default; strict durable receipts complete only their exact sources and never mark original manifests directly uploaded. See OfflineProfileMerge.md for fallback reasons and device acceptance gates. No local profile cleanup is performed.
+Pending counts reflect unconfirmed original sources. Latest-only same-launch substitution is disabled because concurrent snapshots can differ in region/line/branch hit state from the last snapshot alone. Every valid unconfirmed original is kept eligible for gzip. Built-in cross-launch merging is enabled by `start()` with provisional SDK budgets; strict durable receipts complete only their exact sources and never mark original manifests directly uploaded. See OfflineProfileMerge.md for fallback reasons and device acceptance gates. No local profile cleanup is performed.
 
 Never delete Application Support as the first diagnostic step; it destroys the pending evidence being investigated.
 

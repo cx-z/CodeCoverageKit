@@ -2,7 +2,6 @@
 import Foundation
 import XCTest
 @_spi(OfflineMerge) @testable import CodeCoverageKit
-@_spi(OfflineMerge) import CodeCoverageKitOfflineMerge
 
 final class CoverageOfflineMergeTests: XCTestCase {
     /// Exercises the actual Swift/NSData/C ownership boundary and compares the full fixed-binary LLVM export.
@@ -26,7 +25,7 @@ final class CoverageOfflineMergeTests: XCTestCase {
         let t_limits = CoverageMergeLimits(maxSources: 64, maxInputBytes: 1024 * 1024, maxOutputBytes: 1024 * 1024,
             maxRecords: 10000, timeoutMilliseconds: 10000, maxRequestBytes: 1024 * 1024, maxRequestGrowthRatio: 1,
             minimumSavingsBytes: 1, minimumSavingsRatio: 0.1, maxProcessResidentBytes: Int.max, minimumFreeDiskBytes: 1)
-        let t_merged = try CoverageOfflineMerge.merge(profiles: t_inputs, limits: t_limits)
+        let t_merged = try CoverageLLVMProfileMerger.merge(profiles: t_inputs, limits: t_limits)
         let t_actual = t_root.appendingPathComponent("client.profdata"), t_control = t_root.appendingPathComponent("control.profdata")
         try t_merged.write(to: t_actual)
         _ = try p_run(["llvm-profdata", "merge", "-sparse", t_raw[0].path, t_raw[1].path, "-o", t_control.path])
@@ -59,8 +58,8 @@ final class CoverageOfflineMergeTests: XCTestCase {
         }
 
         var t_unknown = t_inputs[0]; t_unknown[8] = 11
-        XCTAssertThrowsError(try CoverageOfflineMerge.merge(profiles: [t_unknown, t_inputs[1]], limits: t_limits))
-        XCTAssertThrowsError(try CoverageOfflineMerge.merge(profiles: [t_inputs[0].prefix(20), t_inputs[1]], limits: t_limits))
+        XCTAssertThrowsError(try CoverageLLVMProfileMerger.merge(profiles: [t_unknown, t_inputs[1]], limits: t_limits))
+        XCTAssertThrowsError(try CoverageLLVMProfileMerger.merge(profiles: [t_inputs[0].prefix(20), t_inputs[1]], limits: t_limits))
     }
 
     /// Runs only isolated fixture compiler/tools with the same fixed developer directory used for dependency validation.

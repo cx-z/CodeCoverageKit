@@ -1,7 +1,7 @@
 #if CODE_COVERAGE_KIT_ENABLED
 import Foundation
 
-/// Explicit measured budgets for the optional Coverage-only dependency; there are no production default thresholds.
+/// Internal merge budgets; built-in acceptance limits remain provisional until device resource measurements are complete.
 @_spi(OfflineMerge) public struct CoverageMergeLimits: Sendable {
     public let maxSources: Int
     public let maxInputBytes: Int
@@ -15,7 +15,17 @@ import Foundation
     public let maxProcessResidentBytes: Int
     public let minimumFreeDiskBytes: Int
 
-    /// Requires caller-supplied acceptance budgets; installation is reserved for a separately validated Coverage build.
+    /// Provides bounded SDK-owned defaults for internal device acceptance; hosts do not assemble an engine or budgets.
+    static var builtIn: CoverageMergeLimits {
+        CoverageMergeLimits(maxSources: 32, maxInputBytes: 32 * 1024 * 1024,
+            maxOutputBytes: 32 * 1024 * 1024, maxRecords: 2_000_000,
+            timeoutMilliseconds: 5_000, maxRequestBytes: 8 * 1024 * 1024,
+            maxRequestGrowthRatio: 8, minimumSavingsBytes: 128,
+            minimumSavingsRatio: 0.05, maxProcessResidentBytes: 2 * 1024 * 1024 * 1024,
+            minimumFreeDiskBytes: 256 * 1024 * 1024)
+    }
+
+    /// Creates explicit limits for SDK assembly and isolated validation; these values do not attest device acceptance.
     public init(maxSources: Int, maxInputBytes: Int, maxOutputBytes: Int, maxRecords: Int,
                 timeoutMilliseconds: Int, maxRequestBytes: Int, maxRequestGrowthRatio: Double,
                 minimumSavingsBytes: Int, minimumSavingsRatio: Double,

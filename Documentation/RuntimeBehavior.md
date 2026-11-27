@@ -4,7 +4,7 @@
 
 `uploadPending` captures and freezes the current valid unconfirmed raw inputs for that user action. Latest-only same-launch substitution is disabled: concurrent cumulative sampling does not generally preserve all earlier region/line/branch hit states. `capture_sequence` remains a local strictly increasing launch sequence, excluded from original Run metadata; sequence ordering alone is not a hit-equivalence proof. Every original profile and manifest is retained.
 
-The optional cross-launch merger is implemented and defaults to **off**, with no production resource thresholds or device approval. Ordinary Core has no LLVM dependency. See [OfflineProfileMerge](OfflineProfileMerge.md) for the optional build/integration, narrow format matrix, complete gzip benefit comparison and remaining enablement gates.
+The single SDK includes the pinned LLVM merger. `start()` installs it and enables merging internally, using SDK-owned provisional device-acceptance budgets. No extra dependency, import, provider or budget setup belongs to the host. See [OfflineProfileMerge](OfflineProfileMerge.md) for the format matrix, limits, gzip comparisons and pending true-device acceptance.
 
 ## Ownership and batches
 
@@ -28,4 +28,4 @@ Authentication/encoding rejection stops the batch; 409/permanent rejection canno
 
 The console separates preparing/uploading/failure/fallback, received upload objects, aggregate-delivered sources and pending/failed raw sources. The latest raw snapshot never borrows an aggregate's compressed size. Group statistics include complete raw/merged gzip bytes, largest original request, bounded retry bytes, preparation duration and process peak RSS; no credentials/profile content enter telemetry.
 
-The console switch or `CodeCoverage.setCrossLaunchMergeEnabled(false)` affects the next manual operation; it does not rewrite in-flight requests or discard receipts. The flag resets to off at process start. Closing merge restores individual raw gzip for unconfirmed inputs. The SDK never uploads Build binaries, dSYM, Build manifests or business data.
+The console switch or `CodeCoverage.setCrossLaunchMergeEnabled(false)` affects the next manual operation; it does not rewrite in-flight requests or discard receipts. A new process defaults to enabled when `start()` runs; repeated `start()` does not override a switch disabled in the same process. Closing merge restores individual raw gzip for unconfirmed inputs. The SDK never uploads Build binaries, dSYM, Build manifests or business data.

@@ -1,0 +1,20 @@
+{
+  "bridge_sha256": "e86e092b30e3e85ac57871d0b469d870ac64ad18aeec7af8a85976698257b867",
+  "build_script_sha256": "54801a13b5cbca31703667f02fc75be0a7d533ea8c291cf5a5b4e414c29f589d",
+  "files": {
+    "CCKProfileMerge.xcframework/Info.plist": "cb4a8428c785e332184992f44e58d26663fa3f8f1d25fca0e6cf7b283db0cc5c",
+    "CCKProfileMerge.xcframework/ios-arm64/Headers/CCKProfileMerge.h": "ae68b59c591519d13a7de58c03247922ac7e4fd1d485017c9ca9a85221096da2",
+    "CCKProfileMerge.xcframework/ios-arm64/Headers/module.modulemap": "d13a3c038a3b4d300baf4a5d3e89d87c968ed96a8bfae244ba56cc84e695d71a",
+    "CCKProfileMerge.xcframework/ios-arm64/libCCKProfileMerge.a": "1694ac9324b99cc441f70b2e666ea460a48d2408d116a0f888c1048345d44d8e",
+    "CCKProfileMerge.xcframework/ios-arm64_x86_64-simulator/Headers/CCKProfileMerge.h": "ae68b59c591519d13a7de58c03247922ac7e4fd1d485017c9ca9a85221096da2",
+    "CCKProfileMerge.xcframework/ios-arm64_x86_64-simulator/Headers/module.modulemap": "d13a3c038a3b4d300baf4a5d3e89d87c968ed96a8bfae244ba56cc84e695d71a",
+    "CCKProfileMerge.xcframework/ios-arm64_x86_64-simulator/libCCKProfileMerge.a": "112b80866be54996c85d8925e05dca1f13ae51464cc6fc2261f66ac0f7dde2cb",
+    "CCKProfileMerge.xcframework/macos-arm64_x86_64/Headers/CCKProfileMerge.h": "ae68b59c591519d13a7de58c03247922ac7e4fd1d485017c9ca9a85221096da2",
+    "CCKProfileMerge.xcframework/macos-arm64_x86_64/Headers/module.modulemap": "d13a3c038a3b4d300baf4a5d3e89d87c968ed96a8bfae244ba56cc84e695d71a",
+    "CCKProfileMerge.xcframework/macos-arm64_x86_64/libCCKProfileMerge.a": "01e6d1bbbdddc9f1c3832f99041f56ac88478b0a23347d39dd4a3d8419b04ded",
+    "LLVM-LICENSE.txt": "8d85c1057d742e597985c7d4e6320b015a9139385cff4cbae06ffc0ebe89afee",
+    "NOTICE.txt": "0754b8157165c440bb8e5ffb36028ecd394aba00071a8f64735d5c86cd4286ac",
+    "README.md": "4915ea43f7692777acbec6d143bb7c6a224ae7087ed27089b907beb15d1d944d"
+  },
+  "llvm_version": "20.1.8"
+}

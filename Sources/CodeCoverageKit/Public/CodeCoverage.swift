@@ -71,10 +71,11 @@ public enum CodeCoverage {
         (try? CoverageBuildMetadata.load()) != nil
     }
 
-    /// 在主 Actor 启动本地采集、恢复历史 pending，并注册只做本地快照/恢复的生命周期监听；不会联网且重复调用无副作用。
+    /// 在主 Actor 安装内置离线引擎并默认开启合并，启动本地采集和生命周期监听；不会联网且重复调用无副作用。
     public static func start() {
         guard !vDidStart else { return }
         vDidStart = true
+        CoverageLLVMProfileMerger.install(on: CoverageCollector.shared)
         CoverageCollector.shared.start()
         vBackgroundObserver = NotificationCenter.default.addObserver(
             forName: UIApplication.didEnterBackgroundNotification,
@@ -92,7 +93,7 @@ public enum CodeCoverage {
         }
     }
 
-    /// Controls cross-launch preparation for the next manual upload. Default is off; accepted receipts remain valid when disabled.
+    /// Controls cross-launch preparation for the next manual upload. Start enables it by default; disabling preserves accepted receipts.
     public static func setCrossLaunchMergeEnabled(_ enabled: Bool) {
         CoverageCollector.shared.setCrossLaunchMergeEnabled(enabled)
     }
