@@ -1,0 +1,4 @@
+module CCKProfileMerge {
+  header "CCKProfileMerge.h"
+  export *
+}

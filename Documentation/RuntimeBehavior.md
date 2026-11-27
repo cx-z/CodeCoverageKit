@@ -1,34 +1,31 @@
 # Runtime Behavior
 
-## Snapshot lifecycle
+`CodeCoverage.start()` initializes one Collector, restores original manifests/strict aggregate receipts, and captures the current LLVM runtime buffer. Background transitions and explicit snapshots save locally. Foreground reload does not capture/upload. Lifecycle events never upload. The SDK does not reset counters, run a timer or depend on termination callbacks.
 
-`CodeCoverage.start()` initializes the collector once, restores all manifests and captures the current LLVM runtime buffer. Entering the background captures again. Entering the foreground reloads manifests but does not capture or upload. `snapshot` captures on demand without networking. `uploadPending` first captures a current snapshot, then freezes a plan of pending/retryable representatives for upload. Legacy records without capture ordering remain independent.
+`uploadPending` captures and freezes the current valid unconfirmed raw inputs for that user action. Latest-only same-launch substitution is disabled: concurrent cumulative sampling does not generally preserve all earlier region/line/branch hit states. `capture_sequence` remains a local strictly increasing launch sequence, excluded from original Run metadata; sequence ordering alone is not a hit-equivalence proof. Every original profile and manifest is retained.
 
-The collector does not depend on application termination callbacks and does not run a timer. Normal snapshots do not reset LLVM counters, so later profiles represent cumulative execution in that process. Each new local manifest has an optional `capture_sequence`, strictly increasing inside that launch and excluded from Run metadata. The upload plan groups by Cycle, Build, device, launch and process, and uses the highest valid sequence in pending/retryable/uploaded state. Missing, invalid or duplicate sequences or unvalidated files disable coalescing for that group. Permanent failures stay visible. Different launches are never substituted.
+The optional cross-launch merger is implemented and defaults to **off**, with no production resource thresholds or device approval. Ordinary Core has no LLVM dependency. See [OfflineProfileMerge](OfflineProfileMerge.md) for the optional build/integration, narrow format matrix, complete gzip benefit comparison and remaining enablement gates.
 
-## Ownership and persistence
+## Ownership and batches
 
-All LLVM runtime access, filesystem mutation, record state and upload sequencing belong to one private serial collector queue. The store is used only on that boundary. Foreground reload preserves this collector’s active uploading Run instead of resetting it as an interrupted request. A second upload is rejected before disk reload or capture. Snapshots created during a batch wait for the next explicit upload. Public callbacks return immutable summaries on the main thread; the UIKit console and its view model are main-actor isolated.
+The private serial Collector queue owns runtime access, Store, records, receipts, batch state and result commits. A serial preparation worker receives immutable frozen input/configuration and handles LLVM and gzip work. It never mutates Store or Collector collections. Results are checked against the active batch before publication. Preparing counts as busy; a second action is rejected before capture/reload. Lifecycle snapshots may continue during preparation and wait for the next upload. Callbacks deliver immutable summaries on main; UI is main-actor isolated.
 
-New hosts store data under:
+Foreground recovery preserves active raw upload ownership. Every retry uses the same prepared request bytes and object identity, for at most three transport/5xx attempts. New content cannot join an active batch. A later manual action can recombine unconfirmed original sources with new content under a new aggregate identity. Aggregates never become input to another aggregate.
 
-```text
-Application Support/CodeCoverageKit/
-  device.json
-  snapshots/<build-id>/<run-id>.profraw
-  snapshots/<build-id>/<run-id>.json
-```
+## Persistence and obligations
 
-Profile bytes are written before the manifest, both atomically. Directories are excluded from backup. Every manifest fixes its own Cycle and Build identity, so installing another Build cannot relabel old pending files.
+Data lives under `Application Support/CodeCoverageKit`, excluded from backup. Original snapshots remain under `snapshots/<build-id>`. Optional artifacts use `aggregates/<build-id>/<aggregate-id>` and separate `receipts/<aggregate-id>.json`. Each source keeps its original Cycle/Build/device identity across installations.
 
-## Recovery and upload states
+Raw profile bytes precede manifests; aggregate bytes precede object manifests. `CoverageDurableFile` explicitly syncs file contents, atomically renames, re-syncs the complete owned directory chain through its stable container anchor and issues Darwin full-storage flush. Sync/flush errors propagate. Only the completed boundary reports local save success. Recovery validates size/SHA and reestablishes the boundary. Device sudden-reboot acceptance is still required; `.atomic`, process restart or a passing desktop fault test is not that proof.
 
-The durable states are pending, uploading, uploaded, retryable failure and permanent failure. An `uploading` record found after process interruption returns to pending. Before upload, size and SHA-256 are recalculated from disk and must match the manifest. Coalescing only changes the derived upload plan: all profile/manifest files and original statuses remain. Pending/retryable counts omit represented records; uploaded counts include only exact server acknowledgements. Reverting to an older SDK may upload more records but cannot lose data.
+Original statuses remain pending/uploading/uploaded/retryable failure/permanent failure. Interrupted uploading returns to pending unless this Collector still owns the request. A raw Run becomes uploaded only after its own strict acknowledgement and durable state commit. An aggregate gets a separate new Run ID; a strict durable receipt completes exactly its listed raw sources, without setting their manifests to uploaded. Unproven receipts lead to possible duplicate upload, never guessed delivery. There is no client cleanup.
 
-Only HTTP 200, 201 or 202 with exact `status`, `run_id`, `cycle_id`, `build_id`, `sha256` and `size` echoes marks a record uploaded. Authentication errors stop the current batch. Conflict is permanent. Transport and 5xx errors receive only bounded retries during the current user action and remain recoverable afterward.
+## Requests and feedback
 
-Every Run upload, including old pending records and retries, gzip-encodes the complete multipart body with system zlib, regardless of network conditions or compression ratio. Size/SHA and strict response echoes describe the original raw profile. Encoding failure or server encoding rejection retains a retryable Run and stops the batch without identity fallback or automatic encoding retries. Transport/5xx retries stay bounded; incomplete-request errors are transport-retryable. The single local server must support gzip before the new SDK is used; health/probe does not negotiate capabilities.
+Every upload uses full multipart gzip with system zlib in all network environments, including fallback/retries. Original raw requests keep original metadata and `<run_id>.profraw`; indexed objects use `<run_id>.profdata` and explicit provenance. Payload size/SHA always describe the decompressed profile. Only 200/201/202 accepted responses with matching Run/Cycle/Build/size/SHA are accepted; indexed responses must also echo indexed format and the canonical metadata SHA. HTTP success does not wait for LLVM analysis.
 
-The debug console labels the latest Run's raw profile bytes as “原始快照大小”. After that Run is successfully acknowledged, it also shows the gzip request body size (including multipart) and the compressed/uncompressed multipart percentage with the size reduction. These are per-request values, excluding HTTP headers and retry totals. If the latest Run was not successfully uploaded, compressed size is labeled “未成功上传” and the ratio is unavailable; another Run's statistics are never substituted. This display-only telemetry stays in the current batch and is not persisted or added to the public facade/server protocol.
+Authentication/encoding rejection stops the batch; 409/permanent rejection cannot be bypassed by automatic new identities. Unsupported formats, failed preparation, exceeded budgets or insufficient complete gzip savings fall back before sending. Raw encoding or local state-commit failure stops without completing obligations. Permanent aggregate errors remain visible.
 
-The SDK never uploads the app executable, dynamic libraries, dSYM, Build manifest or business data. Those Build artifacts belong to the Mac-side registration process.
+The console separates preparing/uploading/failure/fallback, received upload objects, aggregate-delivered sources and pending/failed raw sources. The latest raw snapshot never borrows an aggregate's compressed size. Group statistics include complete raw/merged gzip bytes, largest original request, bounded retry bytes, preparation duration and process peak RSS; no credentials/profile content enter telemetry.
+
+The console switch or `CodeCoverage.setCrossLaunchMergeEnabled(false)` affects the next manual operation; it does not rewrite in-flight requests or discard receipts. The flag resets to off at process start. Closing merge restores individual raw gzip for unconfirmed inputs. The SDK never uploads Build binaries, dSYM, Build manifests or business data.

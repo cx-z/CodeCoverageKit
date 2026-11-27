@@ -34,7 +34,7 @@ if CodeCoverage.isAvailable {
 
 Hosts that provide their own UI can call `CodeCoverage.snapshot(completion:)` and `CodeCoverage.uploadPending(completion:)`. The host does not access the collector, store, upload client or LLVM bridge directly.
 
-Lifecycle collection is local-only. `start()` captures at launch, backgrounding captures again, and returning to the foreground restores persisted state. Uploading happens only through `uploadPending` or the console button; that action first creates a fresh snapshot and then serially uploads pending representatives, using gzip in all network environments. Validated, ordered snapshots from the same launch can share one representative; legacy records without ordering still upload individually. All original local files remain intact.
+Lifecycle collection is local-only. `start()` captures at launch, backgrounding captures again, and returning to the foreground restores persisted state. Uploading happens only through `uploadPending` or the console button; that action first creates a fresh snapshot and then serially uploads pending representatives, using gzip in all network environments. Latest-only same-launch substitution is disabled after concurrent hit-equivalence failures; all valid unconfirmed raw inputs upload individually unless an enabled, validated offline merge is adopted. All original local files remain intact.
 
 Version 0.1.3 requires the Coverage server to support gzip Run uploads. Update the server before distributing the new SDK; compression failures preserve raw data and stop the batch without uncompressed fallback.
 
@@ -116,3 +116,5 @@ This repository does not include the Coverage server, `coveragectl`, a sample ap
 ## License
 
 CodeCoverageKit is available under the [Apache License 2.0](LICENSE).
+
+Offline cross-launch merging is an optional, locally built Coverage dependency, off by default and pending device acceptance. See [OfflineProfileMerge](Documentation/OfflineProfileMerge.md). Current uploads conservatively preserve every unconfirmed raw input; latest-only same-launch substitution is disabled because concurrent sampling does not generally preserve the earlier hit set.

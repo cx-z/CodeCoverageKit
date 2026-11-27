@@ -37,8 +37,10 @@ public enum CodeCoverage {
         public let latestSnapshotSHA256: String
         /// 最新快照从读取 runtime 到原子提交清单的近似耗时，单位为毫秒。
         public let latestSnapshotDurationMilliseconds: Int
-        /// 本次用户操作中经服务端严格回显校验后标记为已上传的 Run 数量。
+        /// 本次用户操作中严格确认且已完成本地提交的上传对象数，包含原 Run 和独立合并对象。
         public let uploadedCount: Int
+        /// 本轮通过独立合并对象接收凭据完成义务的原始来源数，不是原 Run 直接成功数。
+        public let mergedSourceCount: Int
         /// 本次用户操作中进入可重试或永久失败状态的 Run 数量。
         public let failedCount: Int
         /// 本轮结束后所有 Build 待上传代表的数量，失败记录单独统计。
@@ -46,13 +48,14 @@ public enum CodeCoverage {
         /// 是否因服务端返回 401/403 而立即停止本轮剩余上传。
         public let stoppedForAuthentication: Bool
 
-        /// 创建供宿主消费的不可变上传结果，不泄露 Token、Store 或上传客户端。
+        /// 分别映射实际接收对象与合并送达来源，原始快照统计不借用合并对象大小。
         fileprivate init(report: CoverageCollector.UploadReport) {
             latestRunID = report.snapshotRunID
             latestSnapshotSize = report.snapshotSize
             latestSnapshotSHA256 = report.snapshotSHA256
             latestSnapshotDurationMilliseconds = report.snapshotDurationMilliseconds
             uploadedCount = report.uploadedRunIDs.count
+            mergedSourceCount = report.mergedSourceCount
             failedCount = report.failedRunIDs.count
             pendingCount = report.summary.pendingCount
             stoppedForAuthentication = report.stoppedForAuthentication
@@ -87,6 +90,11 @@ public enum CodeCoverage {
         ) { _ in
             CoverageCollector.shared.restoreFromDisk()
         }
+    }
+
+    /// Controls cross-launch preparation for the next manual upload. Default is off; accepted receipts remain valid when disabled.
+    public static func setCrossLaunchMergeEnabled(_ enabled: Bool) {
+        CoverageCollector.shared.setCrossLaunchMergeEnabled(enabled)
     }
 
     /// 在主 Actor 创建 SDK 自带的原生 UIKit 控制台；宿主只负责将其推入现有导航栈。

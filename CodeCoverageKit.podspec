@@ -19,11 +19,18 @@ Pod::Spec.new do |spec|
   spec.ios.deployment_target = '15.0'
   spec.swift_version = '5.9'
   spec.static_framework = true
-  spec.source_files = [
-    'Sources/CodeCoverageKit/**/*.swift',
-    'Sources/CodeCoverageRuntimeBridge/**/*.{h,m}'
-  ]
-  spec.public_header_files = 'Sources/CodeCoverageRuntimeBridge/include/*.h'
+  spec.default_subspecs = 'Core'
+  spec.subspec 'Core' do |core|
+    core.source_files = ['Sources/CodeCoverageKit/**/*.swift', 'Sources/CodeCoverageRuntimeBridge/**/*.{h,m}']
+    core.public_header_files = 'Sources/CodeCoverageRuntimeBridge/include/*.h'
+  end
+  spec.subspec 'OfflineMerge' do |merge|
+    merge.dependency 'CodeCoverageKit/Core'
+    merge.source_files = 'ProfileMergeSupport/Sources/*.swift'
+    merge.vendored_frameworks = 'ProfileMergeSupport/Artifacts/CCKProfileMerge.xcframework'
+    merge.libraries = ['c++', 'z']
+    merge.preserve_paths = 'ProfileMergeSupport/Artifacts/LLVM-LICENSE.txt'
+  end
   spec.frameworks = ['Foundation', 'UIKit']
   spec.libraries = 'z'
   spec.pod_target_xcconfig = {

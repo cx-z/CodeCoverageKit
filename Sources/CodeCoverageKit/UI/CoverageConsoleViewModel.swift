@@ -53,6 +53,8 @@ final class CoverageConsoleViewModel {
     private(set) var serverURLSource: ServerURLSource
     private(set) var coverageSummaryText = "正在读取本地 Coverage 状态…"
     private(set) var canUploadCoverage = false
+    private(set) var mergeEnabled = false
+    private(set) var mergeAvailable = false
     private(set) var state = ViewState(
         kind: .idle,
         title: "等待验证",
@@ -176,7 +178,13 @@ final class CoverageConsoleViewModel {
         }
     }
 
-    /// 手动采集并上传待传代表，在主 Actor 展示最新快照的原始大小与成功请求压缩统计。
+    /// Updates only the next manual operation's local flag; confirmed delivery and an active batch remain intact.
+    func setCrossLaunchMergeEnabled(_ enabled: Bool) {
+        vCollector.setCrossLaunchMergeEnabled(enabled)
+        refreshCoverageSummary()
+    }
+
+    /// 主动上传冻结输入，在主 Actor 区分准备/上传、实际对象、送达来源及正确的分组字节统计。
     func uploadCoverageData() {
         do {
             let t_configuration = try p_validatedConfiguration()
@@ -191,7 +199,12 @@ final class CoverageConsoleViewModel {
                     isBusy: true
                 )
             )
-            vCollector.uploadAllPending(configuration: t_configuration) { [weak self] result in
+            vCollector.uploadAllPending(configuration: t_configuration, progress: { [weak self] t_summary in
+                guard let self else { return }
+                p_applyCoverageSummary(t_summary)
+                p_setState(ViewState(kind: .working, title: t_summary.isPreparing ? "正在准备覆盖数据" : "正在上传覆盖数据",
+                    detail: "本轮输入已固定，原始文件继续保留。", isBusy: true))
+            }) { [weak self] result in
                 guard let self else { return }
                 vCoverageUploadInProgress = false
                 switch result {
@@ -203,7 +216,7 @@ final class CoverageConsoleViewModel {
                         ViewState(
                             kind: t_kind,
                             title: t_title,
-                            detail: "最新 Run：\(report.snapshotRunID)\n原始快照大小：\(report.snapshotSize) 字节\n\(p_compressionDetail(report.snapshotUpload))\nSHA-256：\(report.snapshotSHA256)\n快照耗时：\(report.snapshotDurationMilliseconds) ms\n本轮上传：\(report.uploadedRunIDs.count)\n本轮失败：\(report.failedRunIDs.count)",
+                            detail: "最新 Run：\(report.snapshotRunID)\n原始快照大小：\(report.snapshotSize) 字节\n\(p_compressionDetail(report.snapshotUpload))\nSHA-256：\(report.snapshotSHA256)\n快照耗时：\(report.snapshotDurationMilliseconds) ms\n本轮接收上传对象：\(report.uploadedRunIDs.count)\n本轮合并送达来源：\(report.mergedSourceCount)\n\((report.mergeStatistics.map(\.description) + report.fallbackReasons).joined(separator: "\n"))\n本轮失败：\(report.failedRunIDs.count)",
                             isBusy: false
                         )
                     )
@@ -227,7 +240,7 @@ final class CoverageConsoleViewModel {
     /// 以完整 multipart 请求体计算压缩后占比；最新 Run 未成功上传时明确显示缺少统计。
     private func p_compressionDetail(_ upload: CoverageUploadClient.AcceptedRun?) -> String {
         guard let upload, upload.uncompressedBodySize > 0 else {
-            return "压缩后上传大小：未成功上传\n压缩比例：—"
+            return "压缩后上传大小：原始 Run 未独立上传成功\n压缩比例：—（合并时见分组统计）"
         }
         let t_ratio = Double(upload.compressedBodySize) / Double(upload.uncompressedBodySize) * 100
         let t_ratioText = String(format: "%.1f%%", t_ratio)
@@ -376,8 +389,10 @@ final class CoverageConsoleViewModel {
         }
     }
 
-    /// 展示代表上传计数及原文件保留说明，根据批次状态决定按钮可用性。
+    /// 展示代表、直接上传与合并送达计数、本地开关和降级原因，按批次所有权决定上传可用性。
     private func p_applyCoverageSummary(_ summary: CoverageCollector.Summary) {
+        mergeEnabled = summary.mergeEnabled
+        mergeAvailable = summary.mergeAvailable
         let t_cycle = summary.currentCycleID ?? "无"
         let t_build = summary.currentBuildID ?? "无"
         var t_lines = [
@@ -385,6 +400,8 @@ final class CoverageConsoleViewModel {
             "Build：\(t_build)",
             "pending：\(summary.pendingCount)  failed：\(summary.failedCount)  uploaded：\(summary.uploadedCount)"
         ]
+        t_lines.append("跨启动合并：\(summary.mergeEnabled ? "开启" : "关闭")；合并已送达来源：\(summary.deliveredSourceCount)")
+        if let t_detail = summary.mergeDetail, !t_detail.isEmpty { t_lines.append(t_detail) }
         if summary.coalescedCount > 0 {
             t_lines.append("部分累计快照已由更新快照代表上传，原文件仍保留（\(summary.coalescedCount) 份）")
         }

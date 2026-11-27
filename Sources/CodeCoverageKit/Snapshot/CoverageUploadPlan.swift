@@ -6,13 +6,13 @@ struct CoverageUploadPlan {
     let records: [CoverageSnapshotRecord]
     let suppressedRunIDs: Set<String>
 
-    /// Keeps ambiguous/legacy groups and permanent errors visible; only validated ordered Runs may dominate.
-    init(records: [CoverageSnapshotRecord], validRunIDs: Set<String>, protectedRunIDs: Set<String> = []) {
+    /// Keeps ambiguous/legacy groups and permanent errors visible; only validated ordered Runs may dominate; durable aggregate receipts complete exact sources. Concurrent sampling requires explicit independent validation before coalescing.
+    init(records: [CoverageSnapshotRecord], validRunIDs: Set<String>, protectedRunIDs: Set<String> = [], deliveredRunIDs: Set<String> = [], coalescingEnabled: Bool = false) {
         let t_groups = Dictionary(grouping: records) {
             [$0.cycleID, $0.buildID, $0.deviceID, $0.launchID, String($0.processID)]
         }
         var t_suppressed = Set<String>()
-        for t_group in t_groups.values {
+        for t_group in t_groups.values where coalescingEnabled {
             let t_sequences = t_group.compactMap(\.captureSequence)
             guard t_sequences.count == t_group.count,
                   t_sequences.allSatisfy({ $0 > 0 }),
@@ -28,7 +28,7 @@ struct CoverageUploadPlan {
             }
         }
         suppressedRunIDs = t_suppressed
-        self.records = records.filter { !t_suppressed.contains($0.runID) }.sorted {
+        self.records = records.filter { $0.uploadStatus == .failedPermanent || (!t_suppressed.contains($0.runID) && !deliveredRunIDs.contains($0.runID)) }.sorted {
             ($0.capturedAt, $0.runID) < ($1.capturedAt, $1.runID)
         }
     }

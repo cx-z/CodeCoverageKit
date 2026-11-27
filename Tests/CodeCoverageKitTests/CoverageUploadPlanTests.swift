@@ -16,7 +16,7 @@ final class CoverageUploadPlanTests: XCTestCase {
 
     /// 创建所有文件已校验的派生计划；生产文件校验仍由 Store 独占完成。
     private func p_plan(_ records: [CoverageSnapshotRecord]) -> CoverageUploadPlan {
-        CoverageUploadPlan(records: records, validRunIDs: Set(records.map(\.runID)))
+        CoverageUploadPlan(records: records, validRunIDs: Set(records.map(\.runID)), coalescingEnabled: true)
     }
 
     /// 代表失败后仍代表旧快照，成功后抑制旧待传但不伪造其 uploaded 状态。
@@ -47,7 +47,7 @@ final class CoverageUploadPlanTests: XCTestCase {
             XCTAssertTrue(p_plan([try p_record(1), try p_record(t_sequence)]).suppressedRunIDs.isEmpty)
         }
         let t_records = [try p_record(1), try p_record(2)]
-        let t_plan = CoverageUploadPlan(records: t_records, validRunIDs: [t_records[0].runID])
+        let t_plan = CoverageUploadPlan(records: t_records, validRunIDs: [t_records[0].runID], coalescingEnabled: true)
         XCTAssertTrue(t_plan.suppressedRunIDs.isEmpty)
     }
 
@@ -56,11 +56,20 @@ final class CoverageUploadPlanTests: XCTestCase {
         let t_old = try p_record(1)
         let t_failed = try p_record(2, status: "failed_permanent")
         XCTAssertTrue(p_plan([t_old, t_failed]).suppressedRunIDs.isEmpty)
+        XCTAssertEqual(CoverageUploadPlan(records: [t_failed], validRunIDs: [t_failed.runID], deliveredRunIDs: [t_failed.runID]).records.map(\.runID), [t_failed.runID])
         let t_latest = try p_record(3)
         let t_plan = CoverageUploadPlan(records: [t_old, t_failed, t_latest],
                                         validRunIDs: [t_old.runID, t_failed.runID, t_latest.runID],
-                                        protectedRunIDs: [t_old.runID])
+                                        protectedRunIDs: [t_old.runID], coalescingEnabled: true)
         XCTAssertTrue(t_plan.suppressedRunIDs.isEmpty)
+    }
+
+    /// Concurrent sampling has no general latest-only hit guarantee; production defaults keep every raw input.
+    func testDefaultDoesNotSubstituteSameLaunchSnapshots() throws {
+        let t_records = [try p_record(1), try p_record(2)]
+        let t_plan = CoverageUploadPlan(records: t_records, validRunIDs: Set(t_records.map(\.runID)))
+        XCTAssertTrue(t_plan.suppressedRunIDs.isEmpty)
+        XCTAssertEqual(t_plan.records.count, 2)
     }
 
     /// 墙钟回退不改变同启动内由持久化序号确定的代表。

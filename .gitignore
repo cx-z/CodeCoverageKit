@@ -6,3 +6,6 @@
 *.profraw
 *.profdata
 
+
+__pycache__/
+*.pyc

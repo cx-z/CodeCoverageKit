@@ -143,3 +143,7 @@ Choose an Xcode version supported by the host project and use the same Developer
 8. Open the report URL provided by the Coverage service and confirm the registered Build and latest Run appear. The SDK does not invent or discover a report URL.
 
 Local-network permission is controlled by iOS. If the system asks, grant it normally; the SDK does not bypass it.
+
+## Optional cross-launch merging
+
+Core remains dependency-free of LLVM and starts with cross-launch merging off. Do not enable it from a successful compile. The separately built local package/CocoaPods subspec, format limitations, measured-budget SPI and required device acceptance are documented in [OfflineProfileMerge](OfflineProfileMerge.md). Same-launch latest-only substitution is conservatively disabled; individual gzip may therefore send more preserved snapshots than earlier versions.

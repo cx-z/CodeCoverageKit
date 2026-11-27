@@ -8,7 +8,9 @@ final class CoverageUploadClient {
         let uncompressedBodySize: Int
     }
 
-    struct AcceptedRun: Sendable {
+    struct AcceptedRun: Codable, Sendable {
+        var profileFormat: String? = nil
+        var metadataSHA256: String? = nil
         let runID: String
         let cycleID: String
         let buildID: String
@@ -79,6 +81,8 @@ final class CoverageUploadClient {
     }
 
     private struct RunResponse: Decodable {
+        let profileFormat: String?
+        let metadataSHA256: String?
         let status: String
         let runID: String
         let cycleID: String
@@ -89,6 +93,8 @@ final class CoverageUploadClient {
         let analyzable: Bool
 
         enum CodingKeys: String, CodingKey {
+            case profileFormat = "profile_format"
+            case metadataSHA256 = "metadata_sha256"
             case status
             case runID = "run_id"
             case cycleID = "cycle_id"
@@ -136,11 +142,17 @@ final class CoverageUploadClient {
             profileURL: profileURL,
             configuration: configuration
         )
-        let t_task = vSession.uploadTask(with: t_preparedUpload.request, from: t_preparedUpload.body) { [weak self] data, response, error in
+        return send(prepared: t_preparedUpload, descriptor: try CoverageUploadDescriptor(record: record), completion: completion)
+    }
+
+    /// Sends the identical prepared request on every bounded retry; no metadata, boundary or bytes are regenerated.
+    @discardableResult
+    func send(prepared: PreparedUpload, descriptor: CoverageUploadDescriptor,
+              completion: @escaping (Result<AcceptedRun, UploadError>) -> Void) -> URLSessionUploadTask {
+        let t_task = vSession.uploadTask(with: prepared.request, from: prepared.body) { [weak self] data, response, error in
             guard let self else { return }
-            completion(p_validateResponse(data: data, response: response, error: error, record: record,
-                                          compressedBodySize: t_preparedUpload.body.count,
-                                          uncompressedBodySize: t_preparedUpload.uncompressedBodySize))
+            completion(p_validateResponse(data: data, response: response, error: error, descriptor: descriptor,
+                compressedBodySize: prepared.body.count, uncompressedBodySize: prepared.uncompressedBodySize))
         }
         t_task.resume()
         return t_task
@@ -152,22 +164,20 @@ final class CoverageUploadClient {
         profileURL: URL,
         configuration: CoverageServerConfiguration
     ) throws -> PreparedUpload {
-        guard !configuration.runUploadToken.isEmpty else {
-            throw UploadError.authenticationFailed
-        }
-        let t_metadata = try record.makeRunMetadataData()
         let t_profile = try Data(contentsOf: profileURL, options: [.mappedIfSafe])
-        guard t_profile.count == record.size else {
-            throw UploadError.invalidResponse("上传前 profile 大小已变化")
+        return try prepareUpload(descriptor: CoverageUploadDescriptor(record: record), profile: t_profile, configuration: configuration)
+    }
+
+    /// Encodes the entire fixed raw/indexed multipart and validates both size and digest before compression.
+    func prepareUpload(descriptor: CoverageUploadDescriptor, profile: Data,
+                       configuration: CoverageServerConfiguration) throws -> PreparedUpload {
+        guard !configuration.runUploadToken.isEmpty else { throw UploadError.authenticationFailed }
+        guard profile.count == descriptor.size, CoverageCanonicalJSON.sha256(profile) == descriptor.sha256 else {
+            throw UploadError.invalidResponse("上传前 profile 大小或 SHA-256 已变化")
         }
-        let t_boundary = "code-coverage-kit-run-\(UUID().uuidString)"
-        let t_body = p_makeMultipartBody(
-            metadata: t_metadata,
-            sha256: record.sha256,
-            profile: t_profile,
-            filename: "\(record.runID).profraw",
-            boundary: t_boundary
-        )
+        let t_boundary = "code-coverage-kit-run-\(descriptor.runID)"
+        let t_body = p_makeMultipartBody(metadata: descriptor.metadata, sha256: descriptor.sha256, profile: profile,
+            filename: descriptor.runID + (descriptor.profileFormat == "indexed" ? ".profdata" : ".profraw"), boundary: t_boundary)
         let t_encoded: Data
         do { t_encoded = try vEncode(t_body) }
         catch { throw UploadError.encodingFailed }
@@ -187,7 +197,7 @@ final class CoverageUploadClient {
         data: Data?,
         response: URLResponse?,
         error: Error?,
-        record: CoverageSnapshotRecord,
+        descriptor: CoverageUploadDescriptor,
         compressedBodySize: Int,
         uncompressedBodySize: Int
     ) -> Result<AcceptedRun, UploadError> {
@@ -207,19 +217,24 @@ final class CoverageUploadClient {
         guard t_payload.status == "accepted" else {
             return .failure(.invalidResponse("status 不是 accepted"))
         }
-        guard t_payload.runID == record.runID,
-              t_payload.cycleID == record.cycleID,
-              t_payload.buildID == record.buildID,
-              t_payload.sha256.lowercased() == record.sha256,
-              t_payload.size == record.size else {
+        guard t_payload.runID == descriptor.runID,
+              t_payload.cycleID == descriptor.cycleID,
+              t_payload.buildID == descriptor.buildID,
+              t_payload.sha256.lowercased() == descriptor.sha256,
+              t_payload.size == descriptor.size else {
             return .failure(.invalidResponse("run_id、cycle_id、build_id、sha256 或 size 回显不一致"))
+        }
+        if descriptor.profileFormat == "indexed",
+           (t_payload.profileFormat != "indexed" || t_payload.metadataSHA256 != descriptor.metadataSHA256) {
+            return .failure(.invalidResponse("profile_format 或 metadata_sha256 回显不一致"))
         }
         return .success(
             AcceptedRun(
+                profileFormat: t_payload.profileFormat, metadataSHA256: t_payload.metadataSHA256,
                 runID: t_payload.runID,
                 cycleID: t_payload.cycleID,
                 buildID: t_payload.buildID,
-                sha256: t_payload.sha256,
+                sha256: t_payload.sha256.lowercased(),
                 size: t_payload.size,
                 receivedAt: t_payload.receivedAt,
                 analyzable: t_payload.analyzable,

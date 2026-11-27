@@ -19,6 +19,7 @@ final class CoverageConsoleViewController: UIViewController {
     private let vUploadButton = UIButton(type: .system)
     private let vCoverageUploadButton = UIButton(type: .system)
     private let vOpenSettingsButton = UIButton(type: .system)
+    private let vMergeSwitch = UISwitch()
     private let vCoverageSummaryLabel = UILabel()
     private let vStatusTitleLabel = UILabel()
     private let vStatusDetailLabel = UILabel()
@@ -59,7 +60,7 @@ final class CoverageConsoleViewController: UIViewController {
         }
     }
 
-    /// 配置导航 Header 和完整滚动约束链，以及配置、探针、上传、状态和权限说明区域。
+    /// 配置原生滚动表单及本地合并开关，所有行为均转发给 ViewModel。
     private func p_setUpUI() {
         title = "覆盖率网络验证"
         view.backgroundColor = .systemBackground
@@ -98,6 +99,12 @@ final class CoverageConsoleViewController: UIViewController {
         p_configureBodyLabel(vCoverageSummaryLabel, color: .secondaryLabel)
         vCoverageSummaryLabel.text = vViewModel.coverageSummaryText
         vContentStackView.addArrangedSubview(vCoverageSummaryLabel)
+
+        let t_mergeRow = UIStackView(arrangedSubviews: [p_makeBodyLabel(text: "跨启动合并（下次上传生效）", color: .label), vMergeSwitch])
+        t_mergeRow.axis = .horizontal; t_mergeRow.alignment = .center; t_mergeRow.spacing = 12
+        vMergeSwitch.isEnabled = false
+        vMergeSwitch.addTarget(self, action: #selector(p_mergeChanged), for: .valueChanged)
+        vContentStackView.addArrangedSubview(t_mergeRow)
 
         p_styleButton(vCoverageUploadButton, title: "上传覆盖数据", primary: true, action: #selector(p_coverageUploadTapped))
         vCoverageUploadButton.isEnabled = false
@@ -209,6 +216,11 @@ final class CoverageConsoleViewController: UIViewController {
         navigationController?.popViewController(animated: true)
     }
 
+    /// Forwards the local merge switch; the ViewModel and Collector retain all configuration and batch decisions.
+    @objc private func p_mergeChanged() {
+        vViewModel.setCrossLaunchMergeEnabled(vMergeSwitch.isOn)
+    }
+
     /// 绑定 ViewModel 完整状态快照，确保页面只渲染而不承载网络决策。
     private func p_bindViewModel() {
         vViewModel.onStateChange = { [weak self] state in self?.p_render(state: state) }
@@ -245,9 +257,11 @@ final class CoverageConsoleViewController: UIViewController {
         vServerURLSourceLabel.text = "地址来源：\(source.rawValue)"
     }
 
-    /// 更新只读 Cycle/Build 与队列计数，并与页面当前忙碌状态共同约束手动上传按钮。
+    /// 渲染 Cycle/Build、来源计数和合并开关；开关仅影响下一轮，准备时仍可关闭。
     private func p_renderCoverageSummary(text: String, canUpload: Bool) {
         vCoverageSummaryLabel.text = text
+        vMergeSwitch.setOn(vViewModel.mergeEnabled, animated: false)
+        vMergeSwitch.isEnabled = vViewModel.mergeAvailable
         vCoverageUploadButton.isEnabled = canUpload && !vViewModel.state.isBusy
         vCoverageUploadButton.alpha = vCoverageUploadButton.isEnabled ? 1 : 0.5
     }

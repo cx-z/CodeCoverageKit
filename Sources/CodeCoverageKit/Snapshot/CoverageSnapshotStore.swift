@@ -7,12 +7,15 @@ final class CoverageSnapshotStore {
 
     enum StoreError: LocalizedError {
         case applicationSupportUnavailable
+        case aggregateAlreadyExists
         case invalidRelativePath
         case profileMissing(String)
         case profileMismatch(String)
 
         var errorDescription: String? {
             switch self {
+            case .aggregateAlreadyExists:
+                return "合并对象目录已经存在，未覆盖原材料。"
             case .applicationSupportUnavailable:
                 return "无法访问 Application Support，覆盖率快照不能持久化。"
             case .invalidRelativePath:
@@ -35,25 +38,33 @@ final class CoverageSnapshotStore {
         }
     }
 
+    let durability: CoverageDurableFile
     private let vFileManager: FileManager
-    private let vRootURL: URL
+    let rootURL: URL
+    let durabilityRootURL: URL
     private let vEncoder: JSONEncoder
     private let vDecoder = JSONDecoder()
 
     /// 创建仅供 Collector 串行队列持有的快照存储，并固定 Application Support 根目录。
-    init(fileManager: FileManager = .default, rootURL: URL? = nil) throws {
+    init(fileManager: FileManager = .default, rootURL: URL? = nil, durability: CoverageDurableFile = CoverageDurableFile()) throws {
+        self.durability = durability
         vFileManager = fileManager
         if let rootURL {
-            vRootURL = rootURL
+            self.rootURL = rootURL
+            var t_anchor = rootURL.deletingLastPathComponent()
+            while !fileManager.fileExists(atPath: t_anchor.path) { t_anchor.deleteLastPathComponent() }
+            durabilityRootURL = t_anchor
         } else {
             guard let t_applicationSupport = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first else {
                 throw StoreError.applicationSupportUnavailable
             }
-            vRootURL = Self.rootURL(applicationSupportURL: t_applicationSupport)
+            self.rootURL = Self.rootURL(applicationSupportURL: t_applicationSupport)
+            // The OS-owned Library is the stable anchor; Application Support and all SDK descendants may be newly created.
+            durabilityRootURL = t_applicationSupport.deletingLastPathComponent()
         }
         vEncoder = JSONEncoder()
         vEncoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-        try p_createDirectory(vRootURL)
+        try p_createDirectory(self.rootURL)
         try p_createDirectory(p_snapshotsRootURL())
     }
 
@@ -62,13 +73,14 @@ final class CoverageSnapshotStore {
         applicationSupportURL.appendingPathComponent(directoryName, isDirectory: true)
     }
 
-    /// 读取或首次生成模块专用匿名 device_id，并通过原子文件写保证重启和覆盖安装后稳定。
+    /// 读取或首次耐久提交匿名 device_id；恢复时重新同步其目录链，不凭文件可读就宣告提交完成。
     func loadOrCreateDeviceID() throws -> String {
-        let t_url = vRootURL.appendingPathComponent("device.json")
+        let t_url = rootURL.appendingPathComponent("device.json")
         if let t_data = try? Data(contentsOf: t_url),
            let t_identity = try? vDecoder.decode(DeviceIdentity.self, from: t_data),
            t_identity.schemaVersion == 1,
            UUID(uuidString: t_identity.deviceID) != nil {
+            try durability.synchronizeExisting(t_url, syncThrough: durabilityRootURL)
             return t_identity.deviceID
         }
         let t_deviceID = UUID().uuidString.lowercased()
@@ -77,7 +89,7 @@ final class CoverageSnapshotStore {
         return t_deviceID
     }
 
-    /// 原子保存原始 LLVM 快照及本启动采集序号，返回身份固定的独立记录。
+    /// 先耐久提交原始 LLVM profile，再耐久提交身份清单，全部成功后才报告本地保存完成。
     func createSnapshot(
         profileData: Data,
         metadata: CoverageBuildMetadata,
@@ -117,7 +129,7 @@ final class CoverageSnapshotStore {
         return t_record
     }
 
-    /// 原子覆盖指定 Run 清单；profile 文件身份和路径保持不可变。
+    /// 耐久替换指定 Run 清单；直接上传成功也必须在此提交后才能对外报告。
     func update(record: CoverageSnapshotRecord) throws {
         guard UUID(uuidString: record.runID) != nil, UUID(uuidString: record.buildID) != nil else {
             throw StoreError.invalidRelativePath
@@ -128,7 +140,7 @@ final class CoverageSnapshotStore {
         try p_writeAtomically(try vEncoder.encode(record), to: t_manifestURL)
     }
 
-    /// 恢复清单，仅将不属于本进程在途请求的 uploading 记录退回 pending。
+    /// 恢复固定路径且 Run 唯一的清单；拒绝歧义身份，仅将非本进程在途 uploading 退回 pending。
     func loadRecords(preservingUploading runIDs: Set<String> = []) throws -> [CoverageSnapshotRecord] {
         let t_buildDirectories = try vFileManager.contentsOfDirectory(
             at: p_snapshotsRootURL(),
@@ -136,6 +148,7 @@ final class CoverageSnapshotStore {
             options: [.skipsHiddenFiles]
         )
         var t_records: [CoverageSnapshotRecord] = []
+        var t_seenRunIDs = Set<String>()
         for t_directory in t_buildDirectories {
             let t_values = try t_directory.resourceValues(forKeys: [.isDirectoryKey])
             guard t_values.isDirectory == true else { continue }
@@ -146,12 +159,18 @@ final class CoverageSnapshotStore {
             ).filter { $0.pathExtension == "json" }
             for t_manifestURL in t_manifestURLs {
                 var t_record = try vDecoder.decode(CoverageSnapshotRecord.self, from: Data(contentsOf: t_manifestURL))
+                guard t_manifestURL.lastPathComponent == t_record.runID + ".json",
+                      t_directory.lastPathComponent == t_record.buildID,
+                      t_record.profileRelativePath == "snapshots/\(t_record.buildID)/\(t_record.runID).profraw",
+                      t_seenRunIDs.insert(t_record.runID).inserted else { throw StoreError.invalidRelativePath }
                 if t_record.uploadStatus == .uploading && !runIDs.contains(t_record.runID) {
                     t_record.uploadStatus = .pending
                     t_record.lastError = "上次上传流程被进程退出中断，已恢复为待上传。"
                     try update(record: t_record)
                 }
                 try validateProfile(record: t_record)
+                try durability.synchronizeExisting(profileURL(record: t_record), syncThrough: durabilityRootURL)
+                try durability.synchronizeExisting(t_manifestURL, syncThrough: durabilityRootURL)
                 t_records.append(t_record)
             }
         }
@@ -164,8 +183,8 @@ final class CoverageSnapshotStore {
               !record.profileRelativePath.split(separator: "/").contains("..") else {
             throw StoreError.invalidRelativePath
         }
-        let t_url = vRootURL.appendingPathComponent(record.profileRelativePath).standardizedFileURL
-        let t_rootPath = vRootURL.standardizedFileURL.path + "/"
+        let t_url = rootURL.appendingPathComponent(record.profileRelativePath).standardizedFileURL
+        let t_rootPath = rootURL.standardizedFileURL.path + "/"
         guard t_url.path.hasPrefix(t_rootPath) else {
             throw StoreError.invalidRelativePath
         }
@@ -186,7 +205,7 @@ final class CoverageSnapshotStore {
 
     /// 创建模块拥有的目录，并将其排除出设备备份以避免 Debug 数据进入云端。
     private func p_createDirectory(_ url: URL) throws {
-        try vFileManager.createDirectory(at: url, withIntermediateDirectories: true)
+        try durability.createDirectory(url)
         var t_url = url
         var t_values = URLResourceValues()
         t_values.isExcludedFromBackup = true
@@ -195,12 +214,12 @@ final class CoverageSnapshotStore {
 
     /// 返回按 Build 分组的快照根目录，不访问或创建其他业务文件。
     private func p_snapshotsRootURL() -> URL {
-        vRootURL.appendingPathComponent("snapshots", isDirectory: true)
+        rootURL.appendingPathComponent("snapshots", isDirectory: true)
     }
 
-    /// 使用 Foundation 的同目录临时文件与原子替换语义提交完整文件。
+    /// 同步完整字节、原子发布、同步目录并完成 Darwin 存储 flush 后才报告提交成功。
     private func p_writeAtomically(_ data: Data, to url: URL) throws {
-        try data.write(to: url, options: [.atomic])
+        try durability.write(data, to: url, syncThrough: durabilityRootURL)
     }
 
     /// 生成包含时区且能被服务端稳定解析的 ISO-8601 时间字符串。
