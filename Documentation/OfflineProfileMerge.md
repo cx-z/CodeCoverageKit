@@ -23,9 +23,13 @@ Generated `ProfileMergeSupport/Artifacts` is ignored by Git. Keep a fresh source
 
 SwiftPM uses the **local** `ProfileMergeSupport/Package.swift` package and its `CodeCoverageKitOfflineMerge` product, after the artifact build. The root package remains unchanged. A future remote binary/package release is a separate distribution task.
 
-CocoaPods defaults to `CodeCoverageKit/Core`. The opt-in `CodeCoverageKit/OfflineMerge` subspec uses the same Swift provider and generated XCFramework. Include it only in the host's explicitly authorized Coverage configuration, using a local prepared checkout; keep ordinary Debug/Release on Core or physically exclude the SDK according to the host policy. Do not use a runtime switch to claim dependency isolation. Build the generated workspace.
+CocoaPods defaults to `CodeCoverageKit/Core`. For commit-pinned Git integration, declare **both** `CodeCoverageKit` and `CodeCoverageKitOfflineMerge` from the same repository and exact commit, restricted to the authorized Debug/Coverage configuration. The standalone optional Pod builds the verified sources during CocoaPods preparation, before source pruning, and caches the prepared Pod normally. It bootstraps pinned CMake/Ninja in an isolated Python venv; first installation requires network, build time and disk space. `CCK_PROFILE_MERGE_CACHE` can select a dedicated reusable source/build cache. Core never invokes this build. CocoaPods cache reuse does not rerun preparation; rebuild/reinstall the optional Pod when changing the build recipe or toolchain.
+
+The local prebuilt `CodeCoverageKit/OfflineMerge` subspec remains available for prepared checkouts. Do not install it together with the standalone optional Pod. Both integrations use the same provider and bridge. Keep ordinary Debug/Release on Core or physically exclude the SDK according to the host policy. Do not use a runtime switch to claim dependency isolation. Build the generated workspace.
 
 `CoverageOfflineMerge.install(limits:)` is an `OfflineMerge` SPI for a validated internal Coverage integration. It registers the engine and caller-supplied measured `CoverageMergeLimits`; it does **not** enable merging. There are deliberately no production budget defaults. Installation and budget selection must follow device acceptance. The facade/console local switch controls only the next manual upload; it resets to off when the process starts. The console cannot enable merging without an installed engine and valid budgets.
+
+An explicitly authorized internal device-acceptance host may install experimental budgets and enable merging at startup to perform that acceptance. Its defaults belong to the host, do not approve the device matrix, and do not change Core's disabled default. Document those budgets as provisional and keep the console off switch available.
 
 Do not update a host dependency, publish artifacts, tag a version or enable this SPI as part of ordinary SDK development.
 

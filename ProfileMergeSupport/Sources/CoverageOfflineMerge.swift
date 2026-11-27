@@ -1,13 +1,13 @@
 #if CODE_COVERAGE_KIT_ENABLED
 import Foundation
 import CCKProfileMerge
-#if SWIFT_PACKAGE
+#if SWIFT_PACKAGE || CCK_OFFLINE_MERGE_SEPARATE_MODULE
 @_spi(OfflineMerge) import CodeCoverageKit
 #endif
 
 /// Optional Coverage-only installation; source semantics, resource limits and true-device acceptance remain release gates.
 public enum CoverageOfflineMerge {
-    /// Registers LLVM 20.1.8 without enabling cross-launch uploads. Pass only budgets measured for the accepted device matrix.
+    /// Registers LLVM 20.1.8 without enabling uploads. Internal acceptance builds may supply explicitly experimental budgets.
     @_spi(OfflineMerge) public static func install(limits: CoverageMergeLimits) {
         CoverageOfflineMergeRuntime.install(limits: limits) { try merge(profiles: $0, limits: $1) }
     }
