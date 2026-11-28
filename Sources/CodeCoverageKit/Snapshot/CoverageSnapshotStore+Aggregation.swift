@@ -46,24 +46,24 @@ extension CoverageSnapshotStore {
         try durability.write(JSONEncoder().encode(receipt), to: t_url, syncThrough: durabilityRootURL)
     }
 
-    /// Restores permanent aggregate rejections without relabelling sources or silently retrying them under fresh identities.
-    func rejectedSourceIDs(records: [CoverageSnapshotRecord]) -> Set<String> {
+    /// Restores rejected fixed combinations, retaining sources for later changed-input or changed-content groups.
+    func rejectedAggregates(records: [CoverageSnapshotRecord]) -> [CoverageAggregateRecord] {
         guard Set(records.map(\.runID)).count == records.count else { return [] }
         let t_records = Dictionary(uniqueKeysWithValues: records.map { ($0.runID, $0) })
         let t_root = rootURL.appendingPathComponent("aggregates")
         guard let t_enumerator = FileManager.default.enumerator(at: t_root, includingPropertiesForKeys: nil, options: [.skipsHiddenFiles]) else { return [] }
-        var t_rejected = Set<String>()
+        var t_rejected: [CoverageAggregateRecord] = []
         for case let t_url as URL in t_enumerator where t_url.lastPathComponent == "object.json" {
             guard let t_data = try? Data(contentsOf: t_url),
                   let t_object = try? JSONDecoder().decode(CoverageAggregateRecord.self, from: t_data),
                   t_object.permanentError != nil, (try? t_object.validate()) != nil,
-                  (try? aggregateDirectory(t_object)) == t_url.deletingLastPathComponent() else { continue }
+                  (try? aggregateDirectory(t_object).resolvingSymlinksInPath().path) == t_url.deletingLastPathComponent().resolvingSymlinksInPath().path else { continue }
             let t_matching = t_object.sources.allSatisfy { t_source in
                 guard let t_record = t_records[t_source.runID], t_record.cycleID == t_object.cycleID,
                       t_record.buildID == t_object.buildID, t_record.deviceID == t_object.deviceID else { return false }
                 return (try? CoverageAggregationSource(record: t_record)) == t_source
             }
-            if t_matching { t_rejected.formUnion(t_object.sources.map(\.runID)) }
+            if t_matching { t_rejected.append(t_object) }
         }
         return t_rejected
     }

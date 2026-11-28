@@ -43,6 +43,12 @@ struct CoverageAggregateRecord: Codable, Equatable, Sendable {
         sha256 == other.sha256 && sources == other.sources
     }
 
+    /// Binds permanent rejection to exact source identities and output bytes, excluding freshly allocated envelope IDs/timestamps.
+    func hasSameMergeContent(as other: CoverageAggregateRecord) -> Bool {
+        cycleID == other.cycleID && buildID == other.buildID && deviceID == other.deviceID &&
+        sources == other.sources && size == other.size && sha256 == other.sha256
+    }
+
     /// Verifies the stored canonical metadata against the typed object before it can authorize a receipt.
     func validate() throws {
         let t_value = try JSONSerialization.jsonObject(with: metadata)

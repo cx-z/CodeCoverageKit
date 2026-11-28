@@ -39,6 +39,13 @@ static int mergeImpl(const CCKProfileInput *inputs, size_t count, size_t maxInpu
         const auto *bytes = static_cast<const unsigned char *>(input.bytes);
         if (support::endian::read64le(bytes) != 0xff6c70726f667281ULL || support::endian::read64le(bytes + 8) != 10)
             return reject(1, "unsupported raw version or variant", error, capacity);
+        // LLVM's iterator can hide empty concatenated segments. Until every segment can be proved independently,
+        // conservatively reject aligned embedded raw-header signatures (even a payload collision falls back).
+        for (size_t offset = 8; offset <= input.size - 8; offset += 8) {
+            if ((offset & 0xffff) == 0 && expired()) return reject(4, "format preflight deadline", error, capacity);
+            if (support::endian::read64le(bytes + offset) == 0xff6c70726f667281ULL)
+                return reject(1, "concatenated raw or embedded header signature not supported", error, capacity);
+        }
     }
     InstrProfWriter writer(true);
     std::vector<object::BuildID> expectedIds;

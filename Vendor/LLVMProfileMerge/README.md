@@ -6,4 +6,6 @@ Slices: iOS arm64, iOS Simulator arm64/x86_64, macOS arm64/x86_64. Deployment ta
 
 `checksums.json` binds the versioned binary/header/license files and bridge/build source hashes. Both CocoaPods and the root Swift Package consume this same artifact. `NOTICE.txt` combines the SDK and LLVM notices for CocoaPods acknowledgements; LLVM is Apache-2.0 WITH LLVM-exception.
 
+The bridge accepts supported single-segment raw v10 inputs. Additional aligned raw header signatures cause conservative fallback before LLVM iteration, which can otherwise hide empty concatenated segments. See `Documentation/OfflineProfileMerge.md` for the complete format and acceptance boundaries.
+
 To update, rebuild with the documented script into a fresh directory, run the production bridge and fixed-binary hit-equivalence validation, replace the framework/license, and regenerate checksums in the same SDK change. Commit the actual static library slices, not LFS pointers or developer-machine paths. The complete multi-architecture dependency occupies about 145 MB before Git compression; this is not the linked App increment. Device equality, performance and sudden-reboot acceptance remain separate.

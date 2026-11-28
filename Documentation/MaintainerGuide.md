@@ -16,6 +16,7 @@
 - Freeze inputs/engine/budgets at the user action, commit only current-batch worker results, prepare one group at a time, and retry the same encoded object at most three transport/5xx attempts. Wait for a worker to finish before fallback.
 - Compare complete multipart gzip bytes including provenance. Resource, maximum-request/growth, stopping-delay and savings thresholds require actual device/host data; no production defaults are approved.
 - Strict indexed acknowledgements bind format and Python-compatible canonical metadata SHA. Persist receipt before reporting delivered sources; keep original direct-upload counts distinct.
+- Permanent aggregate rejection binds exact source identities and indexed payload size/SHA across restart. Do not blacklist its raw sources: changed-source/content groups may proceed, while unchanged combinations cannot acquire a fresh envelope. An unchanged historical match fails only that group and advances to later frozen groups, including other Builds; newly received permanent errors retain their batch-stop behavior. Preserve original Run permanent-failure semantics.
 - Disabling merge preserves receipts and restores raw gzip for unconfirmed original sources. The facade enables a new process by default for internal device acceptance; no received-object withdrawal or repair system is included.
 - The restricted Run token never enters UI, UserDefaults, logs, errors or test snapshots.
 

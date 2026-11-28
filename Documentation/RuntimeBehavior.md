@@ -4,7 +4,7 @@
 
 `uploadPending` captures and freezes the current valid unconfirmed raw inputs for that user action. Latest-only same-launch substitution is disabled: concurrent cumulative sampling does not generally preserve all earlier region/line/branch hit states. `capture_sequence` remains a local strictly increasing launch sequence, excluded from original Run metadata; sequence ordering alone is not a hit-equivalence proof. Every original profile and manifest is retained.
 
-The single SDK includes the pinned LLVM merger. `start()` installs it and enables merging internally, using SDK-owned provisional device-acceptance budgets. No extra dependency, import, provider or budget setup belongs to the host. See [OfflineProfileMerge](OfflineProfileMerge.md) for the format matrix, limits, gzip comparisons and pending true-device acceptance.
+The single SDK includes the pinned LLVM merger. `start()` installs it and enables merging internally, using SDK-owned provisional device-acceptance budgets. No extra dependency, import, provider or budget setup belongs to the host. See [OfflineProfileMerge](OfflineProfileMerge.md) for the format matrix, limits, gzip comparisons, fixed real-device sample equality and remaining acceptance gates.
 
 ## Ownership and batches
 
@@ -24,7 +24,9 @@ Original statuses remain pending/uploading/uploaded/retryable failure/permanent 
 
 Every upload uses full multipart gzip with system zlib in all network environments, including fallback/retries. Original raw requests keep original metadata and `<run_id>.profraw`; indexed objects use `<run_id>.profdata` and explicit provenance. Payload size/SHA always describe the decompressed profile. Only 200/201/202 accepted responses with matching Run/Cycle/Build/size/SHA are accepted; indexed responses must also echo indexed format and the canonical metadata SHA. HTTP success does not wait for LLVM analysis.
 
-Authentication/encoding rejection stops the batch; 409/permanent rejection cannot be bypassed by automatic new identities. Unsupported formats, failed preparation, exceeded budgets or insufficient complete gzip savings fall back before sending. Raw encoding or local state-commit failure stops without completing obligations. Permanent aggregate errors remain visible.
+Authentication/encoding rejection stops the batch. An aggregate's 409/permanent rejection or invalid strict echo persists against its exact source identities and indexed payload size/SHA; a new envelope cannot bypass that rejection. Its unconfirmed sources remain eligible for changed-source or changed-content groups after restart. Original Run permanent failures remain unchanged. Unsupported formats (including concatenated raw headers), failed preparation, exceeded budgets or insufficient complete gzip savings fall back before sending. Raw encoding or local state-commit failure stops without completing obligations. Permanent aggregate errors remain visible while their sources remain unconfirmed.
+
+Encountering an unchanged historical rejection records that object's failure and skips only its current group. Later frozen groups, including other Builds, continue normally; no new object is committed or sent for the rejected combination. A newly received permanent error still follows the existing batch-stop rules.
 
 The console separates preparing/uploading/failure/fallback, received upload objects, aggregate-delivered sources and pending/failed raw sources. The latest raw snapshot never borrows an aggregate's compressed size. Group statistics include complete raw/merged gzip bytes, largest original request, bounded retry bytes, preparation duration and process peak RSS; no credentials/profile content enter telemetry.
 

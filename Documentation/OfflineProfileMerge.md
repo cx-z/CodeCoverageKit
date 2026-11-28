@@ -1,6 +1,6 @@
 # Built-in offline profile merge
 
-`CodeCoverageKit` includes LLVM offline merging in its single CocoaPods/SwiftPM product. `CodeCoverage.start()` automatically installs the internal engine and SDK-owned budgets and enables cross-launch merging. Hosts declare/import only CodeCoverageKit and do not know about a separate provider, SPI, subspec or engine installation. This default is for the current internal device-acceptance build; true-device equality, sudden-reboot and production resource acceptance are still pending.
+`CodeCoverageKit` includes LLVM offline merging in its single CocoaPods/SwiftPM product. `CodeCoverage.start()` automatically installs the internal engine and SDK-owned budgets and enables cross-launch merging. Hosts declare/import only CodeCoverageKit and do not know about a separate provider, SPI, subspec or engine installation. This default is for the current internal device-acceptance build. Six fixed real-device profiles from three launches have passed full region/line/branch equality against the same-Build server LLVM control; the wider device/instrumentation matrix, sudden-reboot and production resource acceptance remain pending.
 
 ## Dependency and build
 
@@ -33,7 +33,7 @@ The console switch and `CodeCoverage.setCrossLaunchMergeEnabled(false)` remain a
 
 | Dimension | Implemented recognition | Acceptance boundary |
 | --- | --- | --- |
-| Input | little-endian 64-bit raw magic, exact version 10, no variant bits | Synthetic macOS Clang C/Objective-C/C++ and Swift fixtures; real iOS acceptance pending |
+| Input | Single-segment little-endian 64-bit raw, exact version 10, no variant bits | Synthetic macOS Clang C/Objective-C/C++ and Swift fixtures, plus the fixed six-profile real-device set; broader iOS matrix pending |
 | Features | frontend instrumentation; LLVM function identity/hash/counters and binary IDs | Bitmap/MC/DC, value-profile records and vtable-profile names are explicitly rejected; IR, temporal, correlated and unknown formats are rejected |
 | Merger | LLVM 20.1.8 Reader/Writer, independent memory buffers | Whole group fails on any reader/writer diagnostic; no skipped input |
 | Output | sparse indexed version 12; fully reread before success | Compatible desktop fixtures read with Xcode 26.3 Apple LLVM 17.0.0 |
@@ -42,6 +42,8 @@ The console switch and `CodeCoverage.setCrossLaunchMergeEnabled(false)` remain a
 Synthetic Darwin raw fixtures currently carry an empty binary-ID list; preservation of a nonempty raw binary-ID list still needs target-input acceptance even though the reader/writer API path is implemented.
 
 The version/variant check identifies a format, not every compiler or instrumentation option that might produce that header. Do not expand the approved matrix based only on an Xcode version string or a valid header. Unsupported input falls back to raw gzip; headers are never rewritten. Original profiles/manifests are retained across Build installations with their original identity.
+
+LLVM iteration can skip empty concatenated raw segments without exposing each header to the caller. The bridge therefore conservatively rejects any additional 8-byte-aligned raw header signature before invoking LLVM, including all-valid concatenations and a signature collision inside a single payload. Such inputs use individual raw gzip; the bridge does not parse segment layouts or merge raw counters itself.
 
 ## Planning and delivery
 
@@ -55,7 +57,9 @@ Preparation time starts before worker dispatch, includes file reads/LLVM/gzip co
 
 An aggregate gets a new Run ID and explicit `profile_format: indexed`, `trigger_reason: cross_launch_merge`, `app_state: unknown` (the worker does not infer UIKit state), and schema-1 aggregation sources sorted by Run ID (2–64 distinct sources from multiple launches). Sources name only actual raw inputs. Metadata uses UTF-8 sorted compact JSON matching Python `ensure_ascii=False`; a Swift/Python golden covers escaping, Unicode, large integers, omissions and array identity.
 
-Every retry reuses the same prepared object, metadata, payload and gzip bytes, at most three transport/5xx attempts. There is no format switch after sending starts. A later manual action may recombine unconfirmed originals with new content under a fresh identity. Permanent aggregate rejection stays visible and blocks automatic renaming of its exact sources while merging remains enabled. Explicitly disabling merge restores raw sends for unconfirmed sources.
+Every retry reuses the same prepared object, metadata, payload and gzip bytes, at most three transport/5xx attempts. There is no format switch after sending starts. A later manual action may recombine unconfirmed originals with new content under a fresh identity. Permanent aggregate rejection survives restart and blocks a fresh envelope for the exact same source identities and indexed payload size/SHA. It does not blacklist those sources: changed sources or output content may form a new object. Original Runs retain their own permanent-failure semantics. Explicitly disabling merge restores raw sends for unconfirmed sources eligible for direct upload.
+
+When preparation matches an unchanged historical rejection, the Collector reports that existing object as failed, skips its group without publishing or sending a new object, and continues later frozen groups across Build boundaries. Thus a full rejected group cannot starve newer sources or another Build. Newly received permanent responses retain their existing batch-stop behavior.
 
 ## Durable commits and rollback
 

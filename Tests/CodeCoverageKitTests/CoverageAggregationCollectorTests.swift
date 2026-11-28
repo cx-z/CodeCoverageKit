@@ -79,6 +79,144 @@ final class CoverageAggregationCollectorTests: XCTestCase {
         XCTAssertTrue(t_raw.allSatisfy { $0.uploadStatus == .pending })
     }
 
+    /// Permanent rejection survives restore but never blacklists original sources from a later changed-source aggregate.
+    func testPermanentRejectionAllowsNewSourcesAfterRestore() async throws {
+        for t_status in [409, 422, 202] {
+            let t_root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+            defer { try? FileManager.default.removeItem(at: t_root) }
+            let t_capture = Capture(), t_host = "192.168.1.108"
+            let t_collector = try p_collector(root: t_root, capture: t_capture)
+            defer { CoverageURLProtocolStub.unregister(host: t_host) }
+            CoverageURLProtocolStub.register(host: t_host) { t_request in
+                let t_id = t_capture.request(t_request)
+                if t_status == 202 {
+                    var t_echo = try! JSONSerialization.jsonObject(with: self.p_success(root: t_root, id: t_id).body) as! [String: Any]
+                    t_echo["metadata_sha256"] = String(repeating: "0", count: 64)
+                    return CoverageURLProtocolStub.StubResponse(statusCode: 202, body: try! JSONSerialization.data(withJSONObject: t_echo))
+                }
+                return CoverageURLProtocolStub.StubResponse(statusCode: t_status, body: Data("{\"error\":\"rejected\"}".utf8))
+            }
+            let t_first = try await p_upload(t_collector, host: t_host)
+            XCTAssertEqual(t_capture.values().count, 1)
+            XCTAssertEqual(t_first.failedRunIDs.count, 1)
+            let t_store = try CoverageSnapshotStore(rootURL: t_root)
+            let t_sources = try t_store.loadRecords()
+            XCTAssertEqual(t_sources.count, 3)
+            XCTAssertTrue(t_sources.allSatisfy { $0.uploadStatus == .pending })
+            let t_rejected = try XCTUnwrap(t_store.rejectedAggregates(records: t_sources).first)
+            let t_identical = try CoverageAggregateRecord(records: t_sources, payload: Self.p_payload(), launchID: UUID().uuidString)
+            XCTAssertNotEqual(t_identical.runID, t_rejected.runID)
+            XCTAssertTrue(t_rejected.hasSameMergeContent(as: t_identical))
+            let t_changedPayload = try CoverageAggregateRecord(records: t_sources, payload: Self.p_payload() + Data([1]), launchID: UUID().uuidString)
+            XCTAssertFalse(t_rejected.hasSameMergeContent(as: t_changedPayload))
+            let t_restored = try p_collector(root: t_root, capture: t_capture, seedSources: false)
+            CoverageURLProtocolStub.register(host: t_host) { t_request in self.p_success(root: t_root, id: t_capture.request(t_request)) }
+            let t_next = try await p_upload(t_restored, host: t_host)
+            XCTAssertEqual(t_next.uploadedRunIDs.count, 1)
+            XCTAssertNotEqual(t_next.uploadedRunIDs.first, t_first.failedRunIDs.first)
+            XCTAssertEqual(t_next.mergedSourceCount, 4)
+            XCTAssertEqual(t_next.summary.pendingCount, 0)
+            XCTAssertEqual(t_next.summary.failedCount, 0)
+            XCTAssertFalse(t_next.summary.mergeDetail?.contains("永久拒绝") ?? false)
+            XCTAssertTrue(try t_store.loadRecords().allSatisfy { $0.uploadStatus == .pending })
+            XCTAssertEqual(t_store.deliveredSourceIDs(records: try t_store.loadRecords()).count, 4)
+        }
+    }
+
+    /// Skips an unchanged rejected group while later raw inputs upload; disabling still sends its unconfirmed originals.
+    func testUnchangedRejectedGroupIsSkippedWhileLaterRawUploads() async throws {
+        let t_root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: t_root) }
+        let t_capture = Capture(), t_host = "192.168.1.109"
+        let t_collector = try p_collector(root: t_root, capture: t_capture, maxSources: 2)
+        let t_store = try CoverageSnapshotStore(rootURL: t_root)
+        // Freeze older timestamps so the two rejected inputs remain the first bounded group after a new capture.
+        for t_source in try t_store.loadRecords() {
+            var t_json = try JSONSerialization.jsonObject(with: JSONEncoder().encode(t_source)) as! [String: Any]
+            t_json["captured_at"] = "2026-01-01T00:00:00Z"
+            try t_store.update(record: JSONDecoder().decode(CoverageSnapshotRecord.self, from: JSONSerialization.data(withJSONObject: t_json)))
+        }
+        var t_rejected = try CoverageAggregateRecord(records: t_store.loadRecords(), payload: Self.p_payload(), launchID: UUID().uuidString)
+        _ = try t_store.saveAggregate(t_rejected, payload: Self.p_payload())
+        t_rejected.permanentError = "permanent fixture rejection"
+        try t_store.saveAggregateState(t_rejected)
+        defer { CoverageURLProtocolStub.unregister(host: t_host) }
+        CoverageURLProtocolStub.register(host: t_host) { t_request in self.p_success(root: t_root, id: t_capture.request(t_request)) }
+        let t_report = try await p_upload(t_collector, host: t_host)
+        XCTAssertEqual(t_capture.values().map { $0.0 }, [t_report.snapshotRunID])
+        XCTAssertEqual(t_report.uploadedRunIDs, [t_report.snapshotRunID])
+        XCTAssertEqual(t_report.failedRunIDs, [t_rejected.runID])
+        XCTAssertEqual(t_report.summary.pendingCount, 2)
+        let t_objects = FileManager.default.enumerator(at: t_root.appendingPathComponent("aggregates"), includingPropertiesForKeys: nil)!.allObjects as! [URL]
+        XCTAssertEqual(t_objects.filter { $0.lastPathComponent == "object.json" }.count, 1)
+        t_collector.setCrossLaunchMergeEnabled(false)
+        let t_raw = try await p_upload(t_collector, host: t_host)
+        XCTAssertEqual(t_raw.uploadedRunIDs.count, 3)
+        XCTAssertEqual(t_raw.mergedSourceCount, 0)
+        XCTAssertTrue(try t_store.loadRecords().allSatisfy { $0.uploadStatus == .uploaded })
+        let t_restored = try p_collector(root: t_root, capture: t_capture, seedSources: false)
+        let t_summary = await withCheckedContinuation { continuation in t_restored.restoreFromDisk { continuation.resume(returning: $0) } }
+        XCTAssertEqual(t_summary.pendingCount, 0)
+        XCTAssertEqual(t_summary.failedCount, 0)
+        XCTAssertFalse(t_summary.mergeDetail?.contains("永久拒绝") ?? false)
+    }
+
+    /// A rejected 32-source group cannot starve later same-Build aggregates or another Build across repeated actions/restores.
+    func testRejectedFullGroupDoesNotBlockLaterGroupsOrBuilds() async throws {
+        let t_root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: t_root) }
+        let t_capture = Capture(), t_host = "192.168.1.110"
+        let t_collector = try p_collector(root: t_root, capture: t_capture, seedSources: false, maxSources: 32)
+        let t_store = try CoverageSnapshotStore(rootURL: t_root)
+        let t_device = try t_store.loadOrCreateDeviceID()
+        let t_otherBuild = "99999999-9999-4999-8999-999999999999"
+        for t_build in [CoverageTestFixtures.buildID, t_otherBuild] {
+            let t_metadata = try CoverageBuildMetadata.decode(CoverageTestFixtures.metadataData(buildID: t_build))
+            for t_index in 0..<(t_build == t_otherBuild ? 2 : 33) {
+                let t_record = try t_store.createSnapshot(profileData: Data((0..<16_384).map { UInt8(truncatingIfNeeded: $0 * 17 + t_index) }),
+                    metadata: t_metadata, deviceID: t_device, launchID: UUID().uuidString.lowercased(), appState: "active", triggerReason: "manual_snapshot", captureSequence: 1)
+                var t_json = try JSONSerialization.jsonObject(with: JSONEncoder().encode(t_record)) as! [String: Any]
+                // The 33rd source sorts after the fixed rejected 32, but before the action's newly captured snapshot.
+                t_json["captured_at"] = t_index == 32 ? "2026-02-01T00:00:00Z" : "2026-01-01T00:00:00Z"
+                try t_store.update(record: JSONDecoder().decode(CoverageSnapshotRecord.self, from: JSONSerialization.data(withJSONObject: t_json)))
+            }
+        }
+        let t_records = try t_store.loadRecords()
+        let t_rejectedSources = t_records.filter { $0.buildID == CoverageTestFixtures.buildID && $0.capturedAt == "2026-01-01T00:00:00Z" }
+        XCTAssertEqual(t_rejectedSources.count, 32)
+        var t_rejected = try CoverageAggregateRecord(records: t_rejectedSources, payload: Self.p_payload(), launchID: UUID().uuidString)
+        _ = try t_store.saveAggregate(t_rejected, payload: Self.p_payload())
+        t_rejected.permanentError = "permanent full-group fixture rejection"
+        try t_store.saveAggregateState(t_rejected)
+        defer { CoverageURLProtocolStub.unregister(host: t_host) }
+        CoverageURLProtocolStub.register(host: t_host) { t_request in self.p_success(root: t_root, id: t_capture.request(t_request)) }
+        let t_report = try await p_upload(t_collector, host: t_host)
+        XCTAssertEqual(t_report.failedRunIDs, [t_rejected.runID])
+        XCTAssertEqual(t_report.uploadedRunIDs.count, 2)
+        XCTAssertEqual(t_report.mergedSourceCount, 4)
+        XCTAssertEqual(t_report.summary.pendingCount, 32)
+        XCTAssertEqual(t_capture.values().count, 2)
+        XCTAssertFalse(t_capture.values().contains { $0.0 == t_rejected.runID })
+        let t_objects = FileManager.default.enumerator(at: t_root.appendingPathComponent("aggregates"), includingPropertiesForKeys: nil)!.allObjects as! [URL]
+        let t_accepted = try t_objects.filter { $0.lastPathComponent == "object.json" && $0.deletingLastPathComponent().lastPathComponent != t_rejected.runID }
+            .map { try JSONDecoder().decode(CoverageAggregateRecord.self, from: Data(contentsOf: $0)) }
+        XCTAssertEqual(Set(t_accepted.map(\.buildID)), [CoverageTestFixtures.buildID, t_otherBuild])
+        XCTAssertTrue(t_accepted.allSatisfy { $0.sources.count == 2 })
+        let t_after = try t_store.loadRecords()
+        let t_delivered = t_store.deliveredSourceIDs(records: t_after)
+        XCTAssertEqual(t_delivered.count, 4)
+        XCTAssertTrue(t_delivered.isDisjoint(with: t_rejectedSources.map(\.runID)))
+        XCTAssertTrue(t_after.allSatisfy { $0.uploadStatus == .pending })
+        let t_restored = try p_collector(root: t_root, capture: t_capture, seedSources: false, maxSources: 32)
+        let t_next = try await p_upload(t_restored, host: t_host)
+        XCTAssertEqual(t_next.failedRunIDs, [t_rejected.runID])
+        XCTAssertEqual(t_next.uploadedRunIDs, [t_next.snapshotRunID])
+        XCTAssertEqual(t_next.summary.pendingCount, 32)
+        XCTAssertEqual(t_next.summary.deliveredSourceCount, 4)
+        XCTAssertEqual(t_capture.values().count, 3)
+        XCTAssertEqual(t_store.rejectedAggregates(records: try t_store.loadRecords()).count, 1)
+    }
+
     /// Disabling after an uncertain aggregate response permits direct gzip of every unconfirmed original, without deleting it.
     func testDisableAfterResponseLossRestoresRawGzip() async throws {
         let t_root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
@@ -170,17 +308,17 @@ final class CoverageAggregationCollectorTests: XCTestCase {
     }
 
     /// Injects a synthetic indexed payload only to exercise bookkeeping; LLVM semantics are verified by Tools/ProfileMerge/verify.py.
-    private func p_collector(root: URL, capture: Capture, minimumSavingsBytes: Int = 1, timeoutMilliseconds: Int = 60_000, durability: CoverageDurableFile = CoverageDurableFile(),
+    private func p_collector(root: URL, capture: Capture, minimumSavingsBytes: Int = 1, timeoutMilliseconds: Int = 60_000, seedSources: Bool = true, maxSources: Int = 64, durability: CoverageDurableFile = CoverageDurableFile(),
                              engine: @escaping CoverageMergePreparation.Engine = { _, _ in p_payload() }) throws -> CoverageCollector {
         let t_store = try CoverageSnapshotStore(rootURL: root), t_metadata = try CoverageTestFixtures.metadata()
         let t_device = try t_store.loadOrCreateDeviceID()
-        for t_index in 0..<2 {
+        for t_index in 0..<(seedSources ? 2 : 0) {
             _ = try t_store.createSnapshot(profileData: Data((0..<16_384).map { UInt8(truncatingIfNeeded: $0 * 17 + t_index) }), metadata: t_metadata,
                 deviceID: t_device, launchID: UUID().uuidString.lowercased(), appState: "active", triggerReason: "manual_snapshot", captureSequence: 1)
         }
         let t_collectorStore = try CoverageSnapshotStore(rootURL: root, durability: durability)
         let t_collector = CoverageCollector(uploadClient: CoverageUploadClient(session: CoverageURLProtocolStub.makeSession(), encoder: capture.encode), store: t_collectorStore, metadata: t_metadata)
-        t_collector.installMergeEngine(limits: CoverageMergeLimits(maxSources: 64, maxInputBytes: 64 * 1024 * 1024,
+        t_collector.installMergeEngine(limits: CoverageMergeLimits(maxSources: maxSources, maxInputBytes: 64 * 1024 * 1024,
             maxOutputBytes: 1024 * 1024, maxRecords: 1_000_000, timeoutMilliseconds: timeoutMilliseconds, maxRequestBytes: 2 * 1024 * 1024,
             maxRequestGrowthRatio: 10, minimumSavingsBytes: minimumSavingsBytes, minimumSavingsRatio: 0,
             maxProcessResidentBytes: Int.max, minimumFreeDiskBytes: 1), engine: engine)

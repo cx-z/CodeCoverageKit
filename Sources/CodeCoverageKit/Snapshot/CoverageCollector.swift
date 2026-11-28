@@ -73,7 +73,7 @@ final class CoverageCollector {
     private var vMergeLimits: CoverageMergeLimits?
     private var vMergeEngine: CoverageMergePreparation.Engine?
     private var vDeliveredSourceIDs = Set<String>()
-    private var vRejectedSourceIDs = Set<String>()
+    private var vRejectedAggregates: [CoverageAggregateRecord] = []
     private var vLastMergeDetail: String?
     private let vUploadClient: CoverageUploadClient
     private let vLaunchID = UUID().uuidString.lowercased()
@@ -194,8 +194,7 @@ final class CoverageCollector {
                 try p_prepareIfNeeded(reloadRecords: true)
                 let t_snapshot = try p_capture(appState: "active", triggerReason: "user_upload")
                 let t_records = p_makeUploadPlan().records.filter {
-                    ($0.uploadStatus == .pending || $0.uploadStatus == .failedRetryable) &&
-                    (!self.vMergeEnabled || !self.vRejectedSourceIDs.contains($0.runID))
+                    ($0.uploadStatus == .pending || $0.uploadStatus == .failedRetryable)
                 }
                 let t_limits = vMergeEnabled ? vMergeLimits : nil
                 let t_engine = vMergeEnabled ? vMergeEngine : nil
@@ -230,7 +229,7 @@ final class CoverageCollector {
         }
     }
 
-    /// Prepares one immutable candidate off the Collector queue; stale worker results cannot publish artifacts or progress.
+    /// Prepares immutable candidates off-queue; skips historically rejected groups without blocking later frozen groups or publishing stale results.
     private func p_processGroup(_ batch: CoverageUploadBatch) {
         guard vBatch === batch else { return }
         guard batch.groupIndex < batch.groups.count else {
@@ -266,6 +265,13 @@ final class CoverageCollector {
                     case .merged(let t_candidate):
                         do {
                             guard let t_store = self.vStore else { throw CollectorError.unavailable("快照存储不可用。") }
+                            if let t_rejected = self.vRejectedAggregates.first(where: { $0.hasSameMergeContent(as: t_candidate.aggregate) }) {
+                                self.vLastError = t_rejected.permanentError
+                                batch.failedRunIDs.append(t_rejected.runID)
+                                batch.groupIndex += 1
+                                self.p_processGroup(batch)
+                                return
+                            }
                             let t_url = try t_store.saveAggregate(t_candidate.aggregate, payload: t_candidate.payload)
                             self.p_sendItems([.aggregate(t_candidate.aggregate, t_url, t_candidate.prepared, t_candidate.statistics)], index: 0, batch: batch)
                         } catch {
@@ -400,7 +406,7 @@ final class CoverageCollector {
                     t_aggregate.lastError = t_error.localizedDescription
                     if t_error.isPermanent { t_aggregate.permanentError = t_error.localizedDescription }
                     try t_store.saveAggregateState(t_aggregate)
-                    if t_error.isPermanent { vRejectedSourceIDs.formUnion(t_aggregate.sources.map(\.runID)) }
+                    if t_error.isPermanent { vRejectedAggregates.append(t_aggregate) }
                 }
                 if t_error.isRetryableInCurrentOperation, attempt < 3, let prepared {
                     vQueue.asyncAfter(deadline: .now() + .milliseconds(500 * attempt)) {
@@ -447,7 +453,7 @@ final class CoverageCollector {
             vRecords = Dictionary(uniqueKeysWithValues: t_records.map { ($0.runID, $0) })
             vValidatedRunIDs = Set(t_records.map(\.runID))
             vDeliveredSourceIDs = t_store.deliveredSourceIDs(records: t_records)
-            vRejectedSourceIDs = t_store.rejectedSourceIDs(records: t_records)
+            vRejectedAggregates = t_store.rejectedAggregates(records: t_records)
         }
     }
 
@@ -547,13 +553,15 @@ final class CoverageCollector {
         let t_plan = p_makeUploadPlan()
         let t_records = t_plan.records
         let t_pendingCount = t_records.filter {
-            ($0.uploadStatus == .pending || $0.uploadStatus == .uploading) &&
-            (!self.vMergeEnabled || !self.vRejectedSourceIDs.contains($0.runID))
+            ($0.uploadStatus == .pending || $0.uploadStatus == .uploading)
         }.count
         let t_failedCount = t_records.filter {
             $0.uploadStatus == .failedRetryable || $0.uploadStatus == .failedPermanent
-        }.count + (vMergeEnabled ? vRejectedSourceIDs.subtracting(vDeliveredSourceIDs).count : 0)
+        }.count
         let t_uploadedCount = t_records.filter { $0.uploadStatus == .uploaded }.count
+        let t_hasRejection = vRejectedAggregates.contains { t_object in
+            t_object.sources.contains { !vDeliveredSourceIDs.contains($0.runID) && vRecords[$0.runID]?.uploadStatus != .uploaded }
+        }
         return Summary(
             currentCycleID: vMetadata?.cycleID,
             currentBuildID: vMetadata?.buildID,
@@ -564,7 +572,7 @@ final class CoverageCollector {
             isPreparing: vBatch?.isPreparing ?? false,
             mergeEnabled: vMergeEnabled,
             mergeAvailable: vMergeEngine != nil && vMergeLimits != nil,
-            mergeDetail: (vIsUploading ? vBatch?.fallbackReasons.last : vLastMergeDetail) ?? (vRejectedSourceIDs.isEmpty ? nil : "存在永久拒绝的合并对象，原始来源仍保留。"),
+            mergeDetail: (vIsUploading ? vBatch?.fallbackReasons.last : vLastMergeDetail) ?? (!t_hasRejection ? nil : "存在永久拒绝的合并组合；新增来源或内容后可重组，原始来源仍保留。"),
             pendingCount: t_pendingCount,
             failedCount: t_failedCount,
             uploadedCount: t_uploadedCount,

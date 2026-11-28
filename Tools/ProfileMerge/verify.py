@@ -7,6 +7,7 @@ import json
 import os
 from pathlib import Path
 import subprocess
+import struct
 import time
 import uuid
 
@@ -239,6 +240,17 @@ def main():
             p=subprocess.run([str(root/'merge'),str(root/'invalid.profdata'),str(truncated),str(raw[-1])],env=env,capture_output=True)
             if p.returncode <= 0: raise AssertionError(('truncated input did not return error',language,cut,p.returncode))
             failures+=1
+        # LLVM raw v10 has sixteen uint64 header fields (InstrProfData.inc); an empty segment can be skipped inside one iterator advance.
+        empty = struct.pack('<16Q', 0xff6c70726f667281, 10, *([0] * 14))
+        variant = struct.pack('<16Q', 0xff6c70726f667281, 10 | (1 << 60), *([0] * 14))
+        padded = sample + b'\0' * ((-len(sample)) % 8)
+        concatenations = [padded + sample, padded + variant + sample, padded + empty + variant + empty,
+                          variant + sample, padded + variant, padded + empty + sample]
+        for index, content in enumerate(concatenations):
+            path = root / (language + '-concatenated-' + str(index) + '.profraw')
+            path.write_bytes(content)
+            rejected = subprocess.run([str(root/'merge'), str(root/'concatenated-output.profdata'), str(path), str(raw[-1])], env=env, capture_output=True)
+            if rejected.returncode != 1: raise AssertionError(('concatenated input admitted', language, index, rejected.returncode))
         injected=[]
         for allocation in (0,1,5,20):
             faulty=dict(env,CCK_FAIL_ALLOCATION=str(allocation))
@@ -252,7 +264,7 @@ def main():
         results[language]={'allocation_error_codes':injected,'all_raw_count':len(raw),'same_launch_representatives_equivalent':all_hits==representative_hits,'per_launch_equivalence':same_launch_checks,
             'cross_launch_scenarios':scenarios,'all_sources_merge':metrics,'representatives_merge':rep_metrics,
             'selected_source_count':len(selected),'raw_gzip_sum':sum(baseline),'max_raw_gzip_request':max(baseline),'merged_gzip_request':compressed,
-            'savings_bytes':sum(baseline)-compressed,'three_attempt_merged_bytes':3*compressed,'truncation_errors':failures}
+            'savings_bytes':sum(baseline)-compressed,'three_attempt_merged_bytes':3*compressed,'truncation_errors':failures,'concatenation_rejections':len(concatenations)}
     large_source=root/'deadline.c'
     definitions=['/* A fixed synthetic function for reader/writer cost measurement. */\nint f%d(int n){if(n>%d)return n+1;return n-1;}\n'%(i,i%10) for i in range(5000)]
     large_source.write_text(''.join(definitions)+'/* Exercises every fixed function for a non-sparse writer cost measurement. */\nint main(void){int sum=0;'+''.join('sum+=f%d(4);'%i for i in range(5000))+'return sum==-1;}\n')
