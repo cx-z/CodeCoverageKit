@@ -24,7 +24,7 @@ Xcode does not provide a build-configuration condition for a Swift Package produ
 ```ruby
 pod 'CodeCoverageKit',
     :git => 'https://github.com/cx-z/CodeCoverageKit.git',
-    :commit => '<approved-commit>',
+    :tag => '<approved-version>',
     :configurations => ['Debug']
 ```
 

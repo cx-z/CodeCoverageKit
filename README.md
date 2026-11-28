@@ -36,7 +36,7 @@ Hosts that provide their own UI can call `CodeCoverage.snapshot(completion:)` an
 
 Lifecycle collection is local-only. `start()` captures at launch, backgrounding captures again, and returning to the foreground restores persisted state. Uploading happens only through `uploadPending` or the console button; that action first creates a fresh snapshot and then serially uploads pending representatives, using gzip in all network environments. Latest-only same-launch substitution is disabled after concurrent hit-equivalence failures; all valid unconfirmed raw inputs upload individually unless the built-in enabled offline merger passes the format, budget and benefit checks. All original local files remain intact.
 
-Version 0.1.3 requires the Coverage server to support gzip Run uploads. Update the server before distributing the new SDK; compression failures preserve raw data and stop the batch without uncompressed fallback.
+Version 0.1.4 requires the Coverage server to support gzip Run uploads and indexed aggregate objects with strict canonical metadata echoes. Update the server before distributing the SDK; compression failures preserve raw data and stop the batch without uncompressed fallback. Format, fallback and internal acceptance boundaries are documented in [Offline Profile Merge](Documentation/OfflineProfileMerge.md).
 
 ## Integration overview
 
@@ -57,7 +57,7 @@ CocoaPods Debug-only dependency:
 ```ruby
 pod 'CodeCoverageKit',
     :git => 'https://github.com/cx-z/CodeCoverageKit.git',
-    :commit => '<approved-commit>',
+    :tag => '<approved-version>',
     :configurations => ['Debug']
 ```
 
